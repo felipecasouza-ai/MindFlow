@@ -1,0 +1,5 @@
+{
+  "name": "MindFlow PDF Reading Tracker",
+  "description": "An interactive PDF reading companion that creates 10-page daily goals, tracks progress automatically, and generates AI-powered quizzes to test your knowledge after each session.",
+  "requestFramePermissions": []
+}
