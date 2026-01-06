@@ -10,6 +10,7 @@ export default defineConfig(({ mode }) => {
   const apiKey = env.VITE_GEMINI_API_KEY || env.GEMINI_API_KEY || env.API_KEY;
 
   return {
+    base: './',
     plugins: [react()],
     define: {
       // Injeta a chave encontrada no processo global para o SDK do Gemini
