@@ -51,7 +51,12 @@ ${cleanedInput}`,
     }
   });
 
-  // Use the .text property directly to extract the generated text.
-  const jsonStr = response.text.trim();
+  // Handle potentially undefined text property as per TypeScript error TS18048
+  const textOutput = response.text;
+  if (!textOutput) {
+    throw new Error("A API Gemini não retornou conteúdo de texto válido.");
+  }
+
+  const jsonStr = textOutput.trim();
   return JSON.parse(jsonStr);
 };

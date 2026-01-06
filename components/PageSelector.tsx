@@ -27,7 +27,7 @@ const PageSelector: React.FC<PageSelectorProps> = ({ pdfData, fileName, onConfir
   useEffect(() => {
     const loadThumbs = async () => {
       try {
-        const pdfjsLib = window['pdfjs-dist/build/pdf'];
+        const pdfjsLib = (window as any)['pdfjs-dist/build/pdf'];
         const loadingTask = pdfjsLib.getDocument({ data: atob(pdfData.split(',')[1]) });
         const pdf = await loadingTask.promise;
         
@@ -70,7 +70,7 @@ const PageSelector: React.FC<PageSelectorProps> = ({ pdfData, fileName, onConfir
     if (selectedIndices.length === 0) return alert("Selecione pelo menos uma página.");
 
     try {
-      const { PDFDocument } = window['PDFLib'];
+      const { PDFDocument } = (window as any)['PDFLib'];
       const pdfBytes = Uint8Array.from(atob(pdfData.split(',')[1]), c => c.charCodeAt(0));
       const pdfDoc = await PDFDocument.load(pdfBytes);
       const newPdfDoc = await PDFDocument.create();
@@ -96,7 +96,7 @@ const PageSelector: React.FC<PageSelectorProps> = ({ pdfData, fileName, onConfir
     
     setIsFinalizing(true);
     try {
-      const { PDFDocument } = window['PDFLib'];
+      const { PDFDocument } = (window as any)['PDFLib'];
       const pdfBytes = Uint8Array.from(atob(pdfData.split(',')[1]), c => c.charCodeAt(0));
       const pdfDoc = await PDFDocument.load(pdfBytes);
       const newPdfDoc = await PDFDocument.create();
