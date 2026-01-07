@@ -243,7 +243,7 @@ const App: React.FC = () => {
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
       <Header 
         onViewChange={(v) => setState(prev => ({ ...prev, currentView: v as any }))} 
-        user={state.currentUser ? { username: state.currentUser.email, plans: state.currentUser.plans } : null}
+        user={state.currentUser}
         onLogout={async () => await supabase.auth.signOut()}
         activePlan={activePlanMetadata}
         theme={state.theme}

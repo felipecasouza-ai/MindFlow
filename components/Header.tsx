@@ -26,6 +26,11 @@ const Header: React.FC<HeaderProps> = ({ onViewChange, user, onLogout, activePla
     return 'system';
   };
 
+  const getUserDisplayName = () => {
+    if (!user) return '';
+    return user.email.split('@')[0].toUpperCase();
+  };
+
   return (
     <header className="sticky top-0 z-50 glass dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 py-4 shadow-sm">
       <div className="container mx-auto px-4 flex justify-between items-center max-w-6xl">
@@ -72,7 +77,7 @@ const Header: React.FC<HeaderProps> = ({ onViewChange, user, onLogout, activePla
               <div className="flex items-center gap-2 ml-2">
                 <div className="hidden md:block text-right mr-1">
                   <p className="text-[10px] font-bold text-slate-400 uppercase leading-none mb-0.5">Usuário</p>
-                  <p className="text-xs font-bold text-slate-700 dark:text-slate-200 leading-none">{user.username.toUpperCase()}</p>
+                  <p className="text-xs font-bold text-slate-700 dark:text-slate-200 leading-none">{getUserDisplayName()}</p>
                 </div>
                 <button onClick={onLogout} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg transition-all" title="Sair">
                   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
