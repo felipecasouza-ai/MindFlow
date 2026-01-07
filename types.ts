@@ -15,21 +15,21 @@ export interface QuizQuestion {
   explanation: string;
 }
 
+// MindMapNode defines the recursive structure for the mind map visualization
 export interface MindMapNode {
   label: string;
   children?: MindMapNode[];
 }
 
-export interface InfographicItem {
-  icon: string;
-  title: string;
-  description: string;
-}
-
+// StudyMaterials consolidates AI-generated content for daily review
 export interface StudyMaterials {
   summary: string;
   mindMap: MindMapNode;
-  infographic: InfographicItem[];
+  infographic: {
+    icon: string;
+    title: string;
+    description: string;
+  }[];
 }
 
 export interface ReadingPlan {
@@ -41,6 +41,7 @@ export interface ReadingPlan {
   currentDayIndex: number;
   pdfData: string;
   lastAccessed: number;
+  storagePath?: string; // Novo campo para o caminho no Supabase Storage
 }
 
 export interface User {
@@ -55,6 +56,7 @@ export interface PendingPdf {
   name: string;
   data: string;
   totalPages: number;
+  fileBlob?: Blob; // Guardar o blob original para upload eficiente
 }
 
 export interface AppState {

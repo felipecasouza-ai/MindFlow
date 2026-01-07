@@ -2,6 +2,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ReadingDay } from '../types';
 
+const PDF_JS_VERSION = '3.11.174';
+
 interface ReaderProps {
   pdfData: string;
   currentDay: ReadingDay;
@@ -20,7 +22,6 @@ const Reader: React.FC<ReaderProps> = ({ pdfData, currentDay, onDayComplete, onC
   const textContentRef = useRef<string>("");
   const readerContainerRef = useRef<HTMLDivElement>(null);
 
-  // Timer invisível para estatísticas
   useEffect(() => {
     const timer = setInterval(() => {
       setSecondsSpent(prev => prev + 1);
@@ -41,7 +42,20 @@ const Reader: React.FC<ReaderProps> = ({ pdfData, currentDay, onDayComplete, onC
       setIsRendering(true);
       try {
         const pdfjs = (window as any)['pdfjs-dist/build/pdf'];
-        const loadingTask = pdfjs.getDocument({ data: atob(pdfData.split(',')[1]) });
+        
+        // Decodifica base64 para Uint8Array de forma mais eficiente
+        const binaryString = atob(pdfData.split(',')[1]);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+
+        const loadingTask = pdfjs.getDocument({ 
+          data: bytes,
+          cMapUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDF_JS_VERSION}/cmaps/`,
+          cMapPacked: true,
+        });
+        
         const pdf = await loadingTask.promise;
 
         if (isCancelled) return;
@@ -133,7 +147,6 @@ const Reader: React.FC<ReaderProps> = ({ pdfData, currentDay, onDayComplete, onC
           <button 
             onClick={onClose} 
             className="p-1.5 hover:bg-white/10 rounded-lg transition-colors"
-            title="Fechar leitor"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
           </button>
@@ -145,21 +158,13 @@ const Reader: React.FC<ReaderProps> = ({ pdfData, currentDay, onDayComplete, onC
         </div>
 
         <div className="flex items-center bg-slate-800/50 rounded-lg px-1 border border-white/5">
-          <button 
-            onClick={handleZoomOut}
-            disabled={zoomScale <= 0.5}
-            className="p-1.5 hover:bg-white/10 rounded-md text-slate-400 hover:text-white disabled:opacity-20 transition-colors"
-          >
+          <button onClick={handleZoomOut} disabled={zoomScale <= 0.5} className="p-1.5 hover:bg-white/10 rounded-md text-slate-400 hover:text-white disabled:opacity-20 transition-colors">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
           </button>
           <button onClick={resetZoom} className="px-2 py-1 text-[10px] font-bold text-slate-300 hover:text-white min-w-[50px]">
             {Math.round(zoomScale * 100)}%
           </button>
-          <button 
-            onClick={handleZoomIn}
-            disabled={zoomScale >= 4.0}
-            className="p-1.5 hover:bg-white/10 rounded-md text-slate-400 hover:text-white disabled:opacity-20 transition-colors"
-          >
+          <button onClick={handleZoomIn} disabled={zoomScale >= 4.0} className="p-1.5 hover:bg-white/10 rounded-md text-slate-400 hover:text-white disabled:opacity-20 transition-colors">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           </button>
         </div>
@@ -180,7 +185,7 @@ const Reader: React.FC<ReaderProps> = ({ pdfData, currentDay, onDayComplete, onC
           {isAtLastPageOfGoal && (
             <button 
               onClick={() => onDayComplete(textContentRef.current, secondsSpent)}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-black py-1.5 px-3 rounded-lg transition-all animate-pulse uppercase tracking-tighter"
+              className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-black py-1.5 px-3 rounded-lg transition-all animate-pulse uppercase"
             >
               Fazer Quiz
             </button>
@@ -200,16 +205,12 @@ const Reader: React.FC<ReaderProps> = ({ pdfData, currentDay, onDayComplete, onC
       </div>
 
       <div className="bg-slate-900/95 backdrop-blur-md p-2 border-t border-white/5 flex justify-center items-center gap-4">
-        <button 
-          onClick={handlePrev} 
-          disabled={currentPage <= currentDay.startPage || isRendering}
-          className="p-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-10 rounded-lg text-white transition-all active:scale-90"
-        >
+        <button onClick={handlePrev} disabled={currentPage <= currentDay.startPage || isRendering} className="p-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-10 rounded-lg text-white transition-all active:scale-90">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
         </button>
 
         <div className="flex gap-1">
-          {Array.from({ length: currentDay.endPage - currentDay.startPage + 1 }).map((_, i) => {
+          {Array.from({ length: Math.min(currentDay.endPage - currentDay.startPage + 1, 10) }).map((_, i) => {
             const pageNum = currentDay.startPage + i;
             const isCurrent = pageNum === currentPage;
             const isRead = pageNum < currentPage;
@@ -218,19 +219,15 @@ const Reader: React.FC<ReaderProps> = ({ pdfData, currentDay, onDayComplete, onC
                 key={i} 
                 className={`h-1 rounded-full transition-all duration-300 ${
                   isCurrent ? 'bg-indigo-500 w-4' : isRead ? 'bg-emerald-500/40' : 'bg-slate-800'
-                } ${i > 4 && 'hidden sm:block'}`}
+                }`}
                 style={{ width: isCurrent ? '1.5rem' : '0.5rem' }}
               />
             );
           })}
         </div>
 
-        <button 
-          onClick={handleNext} 
-          disabled={currentPage >= currentDay.endPage || isRendering}
-          className="p-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-10 rounded-lg text-white transition-all active:scale-90"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6 6-6"/></svg>
+        <button onClick={handleNext} disabled={currentPage >= currentDay.endPage || isRendering} className="p-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-10 rounded-lg text-white transition-all active:scale-90">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
         </button>
       </div>
 

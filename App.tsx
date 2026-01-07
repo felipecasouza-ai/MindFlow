@@ -14,10 +14,6 @@ import { savePDF, getPDF, deletePDF } from './services/dbService';
 import { supabase } from './services/supabaseClient';
 
 const PDF_JS_VERSION = '3.11.174';
-const pdfjsLib = (window as any)['pdfjs-dist/build/pdf'];
-if (pdfjsLib) {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDF_JS_VERSION}/pdf.worker.min.js`;
-}
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>(() => {
@@ -36,6 +32,14 @@ const App: React.FC = () => {
 
   const [activePlanPdf, setActivePlanPdf] = useState<string | null>(null);
   const [dbError, setDbError] = useState<string | null>(null);
+  const [isCloudSyncing, setIsCloudSyncing] = useState(false);
+
+  useEffect(() => {
+    const pdfjs = (window as any)['pdfjs-dist/build/pdf'];
+    if (pdfjs) {
+      pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDF_JS_VERSION}/pdf.worker.min.js`;
+    }
+  }, []);
 
   useEffect(() => {
     const checkUser = async () => {
@@ -44,7 +48,6 @@ const App: React.FC = () => {
         handleUserData(session.user.id, session.user.email || '');
       }
     };
-
     checkUser();
 
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
@@ -55,22 +58,13 @@ const App: React.FC = () => {
         setDbError(null);
       }
     });
-
-    return () => {
-      authListener.subscription.unsubscribe();
-    };
+    return () => authListener.subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
     const root = window.document.documentElement;
-    const applyTheme = (theme: ThemeMode) => {
-      let isDark = theme === 'dark';
-      if (theme === 'system') {
-        isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      }
-      isDark ? root.classList.add('dark') : root.classList.remove('dark');
-    };
-    applyTheme(state.theme);
+    const isDark = state.theme === 'dark' || (state.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    isDark ? root.classList.add('dark') : root.classList.remove('dark');
     localStorage.setItem('mindflow_theme', state.theme);
   }, [state.theme]);
 
@@ -84,18 +78,8 @@ const App: React.FC = () => {
         .order('last_accessed', { ascending: false });
 
       if (error) {
-        const msg = error.message || "Erro desconhecido";
-        if (msg.includes('reading_plans') || error.code === 'PGRST116' || msg.includes('cache')) {
-          setDbError("Erro de Banco: Verifique se você executou o SQL de criação das tabelas e permissões (RLS) no console do Supabase.");
-        } else {
-          setDbError(`Erro no banco de dados: ${msg}`);
-        }
-        
-        setState(prev => ({ 
-          ...prev, 
-          currentUser: { id: userId, email, plans: [] }, 
-          currentView: 'library' 
-        }));
+        setDbError(`Erro no banco: ${error.message}`);
+        setState(prev => ({ ...prev, currentUser: { id: userId, email, plans: [] }, currentView: 'library' }));
         return;
       }
 
@@ -107,30 +91,55 @@ const App: React.FC = () => {
         days: item.days,
         currentDayIndex: item.current_day_index,
         lastAccessed: item.last_accessed,
+        storagePath: item.storage_path,
         pdfData: ""
       }));
 
-      setState(prev => ({ 
-        ...prev, 
-        currentUser: { id: userId, email, plans }, 
-        currentView: 'library' 
-      }));
-    } catch (e: any) {
-      setDbError("Falha crítica ao conectar com o Supabase.");
+      setState(prev => ({ ...prev, currentUser: { id: userId, email, plans }, currentView: 'library' }));
+    } catch (e) {
+      setDbError("Falha na conexão.");
     }
   };
 
   useEffect(() => {
     const loadActivePdf = async () => {
-      if (state.activePlanId) {
-        const data = await getPDF(state.activePlanId);
-        setActivePlanPdf(data);
-      } else {
+      if (!state.activePlanId) {
         setActivePlanPdf(null);
+        return;
       }
+
+      // 1. Tentar carregar do IndexedDB (Cache local)
+      let data = await getPDF(state.activePlanId);
+      
+      // 2. Se não estiver no local, buscar no Supabase Storage
+      if (!data) {
+        const plan = state.currentUser?.plans.find(p => p.id === state.activePlanId);
+        if (plan?.storagePath) {
+          setIsCloudSyncing(true);
+          try {
+            const { data: blob, error } = await supabase.storage.from('pdfs').download(plan.storagePath);
+            if (error) throw error;
+            
+            const reader = new FileReader();
+            reader.onloadend = async () => {
+              const base64data = reader.result as string;
+              await savePDF(state.activePlanId!, base64data);
+              setActivePlanPdf(base64data);
+              setIsCloudSyncing(false);
+            };
+            reader.readAsDataURL(blob);
+            return;
+          } catch (e) {
+            console.error("Erro ao baixar da nuvem:", e);
+            setIsCloudSyncing(false);
+          }
+        }
+      }
+      
+      setActivePlanPdf(data);
     };
     loadActivePdf();
-  }, [state.activePlanId]);
+  }, [state.activePlanId, state.currentUser]);
 
   const handleFileUpload = async (file: File) => {
     if (!state.currentUser) return;
@@ -138,90 +147,104 @@ const App: React.FC = () => {
     reader.onload = async (e) => {
       const result = e.target?.result as string;
       const pdfjs = (window as any)['pdfjs-dist/build/pdf'];
-      const loadingTask = pdfjs.getDocument({ data: atob(result.split(',')[1]) });
-      const pdf = await loadingTask.promise;
       
-      setState(prev => ({
-        ...prev,
-        currentView: 'page-selector',
-        pendingPdf: {
-          name: file.name,
-          data: result,
-          totalPages: pdf.numPages
-        }
-      }));
+      try {
+        const binary = atob(result.split(',')[1]);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        
+        const loadingTask = pdfjs.getDocument({ data: bytes });
+        const pdf = await loadingTask.promise;
+        
+        setState(prev => ({
+          ...prev,
+          currentView: 'page-selector',
+          pendingPdf: {
+            name: file.name,
+            data: result,
+            totalPages: pdf.numPages,
+            fileBlob: file
+          }
+        }));
+      } catch (err) {
+        alert("Erro ao ler o PDF.");
+      }
     };
     reader.readAsDataURL(file);
   };
 
   const finalizePlan = async (finalPdfData: string, finalPagesCount: number) => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.user || !state.pendingPdf) {
-      setDbError("Sessão expirada. Faça login novamente.");
-      return;
+    if (!state.currentUser || !state.pendingPdf) return;
+    setIsCloudSyncing(true);
+
+    try {
+      const planId = crypto.randomUUID();
+      const storagePath = `${state.currentUser.id}/${planId}.pdf`;
+
+      // 1. Converter Base64 para Blob para o Storage
+      const response = await fetch(finalPdfData);
+      const blob = await response.blob();
+
+      // 2. Upload para Supabase Storage
+      const { error: uploadError } = await supabase.storage.from('pdfs').upload(storagePath, blob);
+      if (uploadError) throw uploadError;
+
+      const pagesPerDay = 10;
+      const totalDays = Math.ceil(finalPagesCount / pagesPerDay);
+      const days: ReadingDay[] = Array.from({ length: totalDays }, (_, i) => ({
+        dayNumber: i + 1,
+        startPage: i * pagesPerDay + 1,
+        endPage: Math.min((i + 1) * pagesPerDay, finalPagesCount),
+        isCompleted: false
+      }));
+
+      const newPlanData = {
+        id: planId,
+        user_id: state.currentUser.id,
+        file_name: state.pendingPdf.name.replace('.pdf', ''),
+        original_file_name: state.pendingPdf.name,
+        total_pages: finalPagesCount,
+        days: days,
+        current_day_index: 0,
+        last_accessed: Date.now(),
+        storage_path: storagePath
+      };
+
+      // 3. Salvar no Banco de Dados
+      const { error: dbError } = await supabase.from('reading_plans').insert([newPlanData]);
+      if (dbError) throw dbError;
+
+      // 4. Salvar no Cache Local (IndexedDB)
+      await savePDF(planId, finalPdfData);
+
+      const newPlan: ReadingPlan = {
+        ...newPlanData,
+        fileName: newPlanData.file_name,
+        originalFileName: newPlanData.original_file_name,
+        totalPages: newPlanData.total_pages,
+        currentDayIndex: newPlanData.current_day_index,
+        lastAccessed: newPlanData.last_accessed,
+        storagePath: storagePath,
+        pdfData: ""
+      };
+
+      setState(prev => ({
+        ...prev,
+        currentUser: prev.currentUser ? { ...prev.currentUser, plans: [newPlan, ...prev.currentUser.plans] } : null,
+        activePlanId: newPlan.id,
+        currentView: 'dashboard',
+        pendingPdf: null
+      }));
+    } catch (e: any) {
+      alert(`Erro ao sincronizar com a nuvem: ${e.message}`);
+    } finally {
+      setIsCloudSyncing(false);
     }
-
-    const userId = session.user.id;
-    const planId = crypto.randomUUID();
-    const pagesPerDay = 10;
-    const totalDays = Math.ceil(finalPagesCount / pagesPerDay);
-    const days: ReadingDay[] = [];
-    
-    for (let i = 0; i < totalDays; i++) {
-      days.push({ 
-        dayNumber: i + 1, 
-        startPage: i * pagesPerDay + 1, 
-        endPage: Math.min((i + 1) * pagesPerDay, finalPagesCount), 
-        isCompleted: false 
-      });
-    }
-
-    const newPlanData = {
-      id: planId,
-      user_id: userId,
-      file_name: state.pendingPdf.name.replace('.pdf', ''),
-      original_file_name: state.pendingPdf.name,
-      total_pages: finalPagesCount,
-      days: days,
-      current_day_index: 0,
-      last_accessed: Date.now()
-    };
-
-    const { error } = await supabase.from('reading_plans').insert([newPlanData]);
-    
-    if (error) {
-      if (error.message.includes('row-level security')) {
-        setDbError("Erro de Permissão (RLS): Você precisa habilitar as políticas de INSERT no console do Supabase para o seu novo projeto.");
-      } else {
-        setDbError(`Erro ao salvar no Supabase: ${error.message}`);
-      }
-      return;
-    }
-
-    await savePDF(planId, finalPdfData);
-
-    const newPlan: ReadingPlan = {
-      ...newPlanData,
-      fileName: newPlanData.file_name,
-      originalFileName: newPlanData.original_file_name,
-      totalPages: newPlanData.total_pages,
-      currentDayIndex: newPlanData.current_day_index,
-      lastAccessed: newPlanData.last_accessed,
-      pdfData: ""
-    };
-
-    setState(prev => ({
-      ...prev,
-      currentUser: prev.currentUser ? { ...prev.currentUser, plans: [newPlan, ...prev.currentUser.plans] } : null,
-      activePlanId: newPlan.id,
-      currentView: 'dashboard',
-      pendingPdf: null
-    }));
   };
 
   const syncPlanToSupabase = async (plan: ReadingPlan) => {
     if (!state.currentUser) return;
-    const { error } = await supabase
+    await supabase
       .from('reading_plans')
       .update({
         file_name: plan.fileName,
@@ -230,8 +253,6 @@ const App: React.FC = () => {
         last_accessed: Date.now()
       })
       .eq('id', plan.id);
-    
-    if (error) setDbError(`Erro de sincronização: ${error.message}`);
   };
 
   const activePlanMetadata = state.currentUser?.plans.find(p => p.id === state.activePlanId) || null;
@@ -250,36 +271,14 @@ const App: React.FC = () => {
         onThemeChange={(t) => setState(prev => ({ ...prev, theme: t }))}
       />
       
-      {dbError && (
-        <div className="container mx-auto px-4 mt-4">
-          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-4 rounded-2xl flex items-start gap-3 shadow-lg animate-in slide-in-from-top-2">
-            <svg xmlns="http://www.w3.org/2000/svg" className="text-red-600 dark:text-red-400 shrink-0 mt-0.5" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-            <div className="flex-grow">
-              <p className="text-red-800 dark:text-red-300 font-bold text-sm">Atenção Necessária</p>
-              <p className="text-red-700 dark:text-red-400 text-xs mt-1">{dbError}</p>
-              <div className="flex gap-2 mt-3">
-                <button 
-                  onClick={() => handleUserData(state.currentUser?.id || '', state.currentUser?.email || '')}
-                  className="text-[10px] font-bold uppercase tracking-wider bg-red-100 dark:bg-red-800 text-red-700 dark:text-red-200 px-3 py-1.5 rounded-md hover:bg-red-200 dark:hover:bg-red-700 transition-colors"
-                >
-                  Tentar reconectar
-                </button>
-                <button 
-                  onClick={() => setDbError(null)}
-                  className="text-[10px] font-bold uppercase tracking-wider bg-white/50 dark:bg-white/10 text-red-700 dark:text-red-200 px-3 py-1.5 rounded-md hover:bg-white/80 transition-colors"
-                >
-                  Fechar
-                </button>
-              </div>
-            </div>
-          </div>
+      {isCloudSyncing && (
+        <div className="bg-indigo-600 text-white text-[10px] font-bold py-1 px-4 text-center animate-pulse uppercase tracking-widest">
+          Sincronizando com a nuvem...
         </div>
       )}
 
       <main className="flex-grow container mx-auto px-4 py-8 max-w-6xl">
-        {state.currentView === 'auth' && !state.currentUser && (
-          <Auth onLogin={handleUserData} />
-        )}
+        {state.currentView === 'auth' && !state.currentUser && <Auth onLogin={handleUserData} />}
         
         {state.currentView === 'library' && state.currentUser && (
           <Library 
@@ -287,11 +286,13 @@ const App: React.FC = () => {
             onSelectPlan={(id) => setState(prev => ({ ...prev, activePlanId: id, currentView: 'dashboard' }))} 
             onUpload={handleFileUpload}
             onDeletePlan={async (id) => {
-              if (confirm("Tem certeza que deseja excluir este plano? Esta ação não pode ser desfeita.")) {
+              if (confirm("Excluir plano da nuvem?")) {
+                const plan = state.currentUser?.plans.find(p => p.id === id);
+                if (plan?.storagePath) {
+                  await supabase.storage.from('pdfs').remove([plan.storagePath]);
+                }
                 await deletePDF(id);
-                const { error } = await supabase.from('reading_plans').delete().eq('id', id);
-                if (error) setDbError(`Erro ao deletar: ${error.message}`);
-                
+                await supabase.from('reading_plans').delete().eq('id', id);
                 setState(prev => ({ 
                   ...prev, 
                   currentUser: prev.currentUser ? { ...prev.currentUser, plans: prev.currentUser.plans.filter(p => p.id !== id) } : null,
@@ -326,7 +327,13 @@ const App: React.FC = () => {
         {state.currentView === 'dashboard' && activePlanMetadata && (
           <Dashboard 
             plan={activePlanMetadata} 
-            onStartReading={() => setState(prev => ({ ...prev, currentView: 'reader' }))}
+            onStartReading={() => {
+              if (!activePlanPdf && !isCloudSyncing) {
+                alert("Aguarde o download do arquivo da nuvem...");
+                return;
+              }
+              setState(prev => ({ ...prev, currentView: 'reader' }));
+            }}
             onUpdateTitle={(title) => {
               if (!state.currentUser) return;
               const updatedPlans = state.currentUser.plans.map(p => {
@@ -350,14 +357,9 @@ const App: React.FC = () => {
               setState(prev => ({ ...prev, isGeneratingQuiz: true, currentView: 'quiz', lastSessionTime: timeSpent }));
               try {
                 const quiz = await generateQuiz(text);
-                setState(prev => ({ 
-                  ...prev, 
-                  currentQuiz: quiz, 
-                  isGeneratingQuiz: false 
-                }));
+                setState(prev => ({ ...prev, currentQuiz: quiz, isGeneratingQuiz: false }));
               } catch (e) {
-                console.error(e);
-                alert("Erro ao gerar quiz. Verifique sua chave de API Gemini.");
+                alert("Erro no quiz.");
                 setState(prev => ({ ...prev, isGeneratingQuiz: false, currentView: 'dashboard' }));
               }
             }}
@@ -371,16 +373,10 @@ const App: React.FC = () => {
             isLoading={state.isGeneratingQuiz} 
             onFinish={(score) => {
               if (!state.currentUser || !state.activePlanId) return;
-
               const updatedPlans = state.currentUser.plans.map(p => {
                 if (p.id === state.activePlanId) {
                   const updatedDays = [...p.days];
-                  updatedDays[p.currentDayIndex] = { 
-                    ...updatedDays[p.currentDayIndex], 
-                    isCompleted: true, 
-                    quizScore: score,
-                    timeSpentSeconds: state.lastSessionTime
-                  };
+                  updatedDays[p.currentDayIndex] = { ...updatedDays[p.currentDayIndex], isCompleted: true, quizScore: score, timeSpentSeconds: state.lastSessionTime };
                   const nextIndex = p.currentDayIndex + 1 < p.days.length ? p.currentDayIndex + 1 : p.currentDayIndex;
                   const updatedPlan = { ...p, days: updatedDays, currentDayIndex: nextIndex };
                   syncPlanToSupabase(updatedPlan);
@@ -388,14 +384,7 @@ const App: React.FC = () => {
                 }
                 return p;
               });
-
-              setState(prev => ({ 
-                ...prev, 
-                currentUser: prev.currentUser ? { ...prev.currentUser, plans: updatedPlans } : null, 
-                currentView: 'dashboard', 
-                currentQuiz: null,
-                lastSessionTime: 0
-              }));
+              setState(prev => ({ ...prev, currentUser: prev.currentUser ? { ...prev.currentUser, plans: updatedPlans } : null, currentView: 'dashboard', currentQuiz: null, lastSessionTime: 0 }));
             }} 
             onCancel={() => setState(prev => ({ ...prev, currentView: 'dashboard', lastSessionTime: 0 }))}
           />
@@ -405,7 +394,7 @@ const App: React.FC = () => {
       </main>
 
       <footer className="py-6 text-center text-slate-500 dark:text-slate-400 text-sm border-t border-slate-200 dark:border-slate-800">
-        © {new Date().getFullYear()} MindFlow - Cloud Sync Powered by Supabase
+        © {new Date().getFullYear()} MindFlow - Cloud Storage Powered by Supabase
       </footer>
     </div>
   );
