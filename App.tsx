@@ -90,7 +90,8 @@ const App: React.FC = () => {
         totalPages: item.total_pages,
         days: item.days,
         currentDayIndex: item.current_day_index,
-        lastAccessed: new Date(item.last_accessed).getTime(),
+        // Ensure lastAccessed is always a number (milliseconds)
+        lastAccessed: typeof item.last_accessed === 'number' ? item.last_accessed : Number(item.last_accessed) || Date.now(),
         storagePath: item.storage_path,
         pdfData: ""
       }));
@@ -194,6 +195,8 @@ const App: React.FC = () => {
         isCompleted: false
       }));
 
+      // Important: last_accessed must be a number (bigint in DB)
+      const timestamp = Date.now();
       const newPlanData = {
         id: planId,
         user_id: state.currentUser.id,
@@ -202,7 +205,7 @@ const App: React.FC = () => {
         total_pages: finalPagesCount,
         days: days,
         current_day_index: 0,
-        last_accessed: new Date().toISOString(),
+        last_accessed: timestamp,
         storage_path: storagePath
       };
 
@@ -222,7 +225,7 @@ const App: React.FC = () => {
         originalFileName: newPlanData.original_file_name,
         totalPages: newPlanData.total_pages,
         currentDayIndex: newPlanData.current_day_index,
-        lastAccessed: Date.now(),
+        lastAccessed: timestamp,
         storagePath: storagePath,
         pdfData: ""
       };
@@ -249,7 +252,7 @@ const App: React.FC = () => {
         file_name: plan.fileName,
         current_day_index: plan.currentDayIndex,
         days: plan.days,
-        last_accessed: new Date().toISOString()
+        last_accessed: Date.now()
       })
       .eq('id', plan.id);
   };
