@@ -15,20 +15,17 @@ export interface QuizQuestion {
   explanation: string;
 }
 
-// Added MindMapNode interface for StudyReview component
 export interface MindMapNode {
   label: string;
   children?: MindMapNode[];
 }
 
-// Added InfographicItem interface for StudyReview component
 export interface InfographicItem {
   icon: string;
   title: string;
   description: string;
 }
 
-// Added StudyMaterials interface for StudyReview component
 export interface StudyMaterials {
   summary: string;
   mindMap: MindMapNode;
@@ -47,7 +44,8 @@ export interface ReadingPlan {
 }
 
 export interface User {
-  username: string;
+  id: string;
+  email: string;
   plans: ReadingPlan[];
 }
 
@@ -67,5 +65,5 @@ export interface AppState {
   currentQuiz: QuizQuestion[] | null;
   theme: ThemeMode;
   pendingPdf: PendingPdf | null;
-  lastSessionTime?: number; // Para guardar o tempo entre o leitor e o quiz
+  lastSessionTime?: number;
 }

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { AppState, ReadingPlan, ReadingDay, User, ThemeMode, PendingPdf } from './types';
+import { AppState, ReadingPlan, ReadingDay, ThemeMode } from './types';
 import Header from './components/Header';
 import Dashboard from './components/Dashboard';
 import Reader from './components/Reader';
@@ -11,6 +11,7 @@ import Library from './components/Library';
 import PageSelector from './components/PageSelector';
 import { generateQuiz } from './services/geminiService';
 import { savePDF, getPDF, deletePDF } from './services/dbService';
+import { supabase } from './services/supabaseClient';
 
 const PDF_JS_VERSION = '3.11.174';
 const pdfjsLib = (window as any)['pdfjs-dist/build/pdf'];
@@ -33,8 +34,32 @@ const App: React.FC = () => {
     };
   });
 
-  // Hydrated PDF data for the active plan
   const [activePlanPdf, setActivePlanPdf] = useState<string | null>(null);
+  const [dbError, setDbError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const checkUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        handleUserData(session.user.id, session.user.email || '');
+      }
+    };
+
+    checkUser();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
+        handleUserData(session.user.id, session.user.email || '');
+      } else if (event === 'SIGNED_OUT') {
+        setState(prev => ({ ...prev, currentUser: null, currentView: 'auth', activePlanId: null }));
+        setDbError(null);
+      }
+    });
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     const root = window.document.documentElement;
@@ -49,28 +74,52 @@ const App: React.FC = () => {
     localStorage.setItem('mindflow_theme', state.theme);
   }, [state.theme]);
 
-  // Persist users to localStorage WITHOUT the heavy pdfData
-  useEffect(() => {
-    if (state.currentUser) {
-      const allUsers = JSON.parse(localStorage.getItem('mindflow_users') || '{}');
-      
-      // Strip pdfData from each plan before saving to localStorage to avoid QuotaExceededError
-      const strippedUser = {
-        ...state.currentUser,
-        plans: state.currentUser.plans.map(p => ({ ...p, pdfData: "" }))
-      };
-      
-      allUsers[state.currentUser.username] = strippedUser;
-      try {
-        localStorage.setItem('mindflow_users', JSON.stringify(allUsers));
-      } catch (e) {
-        console.error("Critical error saving to localStorage:", e);
-        alert("Erro ao salvar dados. Tente remover alguns planos antigos.");
-      }
-    }
-  }, [state.currentUser]);
+  const handleUserData = async (userId: string, email: string) => {
+    try {
+      setDbError(null);
+      const { data, error } = await supabase
+        .from('reading_plans')
+        .select('*')
+        .eq('user_id', userId)
+        .order('last_accessed', { ascending: false });
 
-  // Hydrate PDF data when activePlanId changes
+      if (error) {
+        const msg = error.message || "Erro desconhecido";
+        if (msg.includes('reading_plans') || error.code === 'PGRST116' || msg.includes('cache')) {
+          setDbError("Erro de Banco: Verifique se você executou o SQL de criação das tabelas e permissões (RLS) no console do Supabase.");
+        } else {
+          setDbError(`Erro no banco de dados: ${msg}`);
+        }
+        
+        setState(prev => ({ 
+          ...prev, 
+          currentUser: { id: userId, email, plans: [] }, 
+          currentView: 'library' 
+        }));
+        return;
+      }
+
+      const plans: ReadingPlan[] = (data || []).map(item => ({
+        id: item.id,
+        fileName: item.file_name,
+        originalFileName: item.original_file_name,
+        totalPages: item.total_pages,
+        days: item.days,
+        currentDayIndex: item.current_day_index,
+        lastAccessed: item.last_accessed,
+        pdfData: ""
+      }));
+
+      setState(prev => ({ 
+        ...prev, 
+        currentUser: { id: userId, email, plans }, 
+        currentView: 'library' 
+      }));
+    } catch (e: any) {
+      setDbError("Falha crítica ao conectar com o Supabase.");
+    }
+  };
+
   useEffect(() => {
     const loadActivePdf = async () => {
       if (state.activePlanId) {
@@ -82,15 +131,6 @@ const App: React.FC = () => {
     };
     loadActivePdf();
   }, [state.activePlanId]);
-
-  const handleLogin = (username: string) => {
-    const allUsers = JSON.parse(localStorage.getItem('mindflow_users') || '{}');
-    setState(prev => ({ 
-      ...prev, 
-      currentUser: allUsers[username] || { username, plans: [] }, 
-      currentView: 'library' 
-    }));
-  };
 
   const handleFileUpload = async (file: File) => {
     if (!state.currentUser) return;
@@ -115,13 +155,14 @@ const App: React.FC = () => {
   };
 
   const finalizePlan = async (finalPdfData: string, finalPagesCount: number) => {
-    if (!state.currentUser || !state.pendingPdf) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user || !state.pendingPdf) {
+      setDbError("Sessão expirada. Faça login novamente.");
+      return;
+    }
 
+    const userId = session.user.id;
     const planId = crypto.randomUUID();
-    
-    // Save heavy data to IndexedDB
-    await savePDF(planId, finalPdfData);
-
     const pagesPerDay = 10;
     const totalDays = Math.ceil(finalPagesCount / pagesPerDay);
     const days: ReadingDay[] = [];
@@ -135,15 +176,38 @@ const App: React.FC = () => {
       });
     }
 
-    const newPlan: ReadingPlan = {
+    const newPlanData = {
       id: planId,
-      fileName: state.pendingPdf.name.replace('.pdf', ''),
-      originalFileName: state.pendingPdf.name,
-      totalPages: finalPagesCount,
-      days,
-      currentDayIndex: 0,
-      pdfData: "", // Empty in state/localStorage, fetched from DB when needed
-      lastAccessed: Date.now()
+      user_id: userId,
+      file_name: state.pendingPdf.name.replace('.pdf', ''),
+      original_file_name: state.pendingPdf.name,
+      total_pages: finalPagesCount,
+      days: days,
+      current_day_index: 0,
+      last_accessed: Date.now()
+    };
+
+    const { error } = await supabase.from('reading_plans').insert([newPlanData]);
+    
+    if (error) {
+      if (error.message.includes('row-level security')) {
+        setDbError("Erro de Permissão (RLS): Você precisa habilitar as políticas de INSERT no console do Supabase para o seu novo projeto.");
+      } else {
+        setDbError(`Erro ao salvar no Supabase: ${error.message}`);
+      }
+      return;
+    }
+
+    await savePDF(planId, finalPdfData);
+
+    const newPlan: ReadingPlan = {
+      ...newPlanData,
+      fileName: newPlanData.file_name,
+      originalFileName: newPlanData.original_file_name,
+      totalPages: newPlanData.total_pages,
+      currentDayIndex: newPlanData.current_day_index,
+      lastAccessed: newPlanData.last_accessed,
+      pdfData: ""
     };
 
     setState(prev => ({
@@ -155,6 +219,21 @@ const App: React.FC = () => {
     }));
   };
 
+  const syncPlanToSupabase = async (plan: ReadingPlan) => {
+    if (!state.currentUser) return;
+    const { error } = await supabase
+      .from('reading_plans')
+      .update({
+        file_name: plan.fileName,
+        current_day_index: plan.currentDayIndex,
+        days: plan.days,
+        last_accessed: Date.now()
+      })
+      .eq('id', plan.id);
+    
+    if (error) setDbError(`Erro de sincronização: ${error.message}`);
+  };
+
   const activePlanMetadata = state.currentUser?.plans.find(p => p.id === state.activePlanId) || null;
   const activePlan: ReadingPlan | null = activePlanMetadata && activePlanPdf 
     ? { ...activePlanMetadata, pdfData: activePlanPdf } 
@@ -164,32 +243,72 @@ const App: React.FC = () => {
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
       <Header 
         onViewChange={(v) => setState(prev => ({ ...prev, currentView: v as any }))} 
-        user={state.currentUser}
-        onLogout={() => setState(prev => ({ ...prev, currentUser: null, activePlanId: null, currentView: 'auth' }))}
+        user={state.currentUser ? { username: state.currentUser.email, plans: state.currentUser.plans } : null}
+        onLogout={async () => await supabase.auth.signOut()}
         activePlan={activePlanMetadata}
         theme={state.theme}
         onThemeChange={(t) => setState(prev => ({ ...prev, theme: t }))}
       />
       
+      {dbError && (
+        <div className="container mx-auto px-4 mt-4">
+          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-4 rounded-2xl flex items-start gap-3 shadow-lg animate-in slide-in-from-top-2">
+            <svg xmlns="http://www.w3.org/2000/svg" className="text-red-600 dark:text-red-400 shrink-0 mt-0.5" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <div className="flex-grow">
+              <p className="text-red-800 dark:text-red-300 font-bold text-sm">Atenção Necessária</p>
+              <p className="text-red-700 dark:text-red-400 text-xs mt-1">{dbError}</p>
+              <div className="flex gap-2 mt-3">
+                <button 
+                  onClick={() => handleUserData(state.currentUser?.id || '', state.currentUser?.email || '')}
+                  className="text-[10px] font-bold uppercase tracking-wider bg-red-100 dark:bg-red-800 text-red-700 dark:text-red-200 px-3 py-1.5 rounded-md hover:bg-red-200 dark:hover:bg-red-700 transition-colors"
+                >
+                  Tentar reconectar
+                </button>
+                <button 
+                  onClick={() => setDbError(null)}
+                  className="text-[10px] font-bold uppercase tracking-wider bg-white/50 dark:bg-white/10 text-red-700 dark:text-red-200 px-3 py-1.5 rounded-md hover:bg-white/80 transition-colors"
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <main className="flex-grow container mx-auto px-4 py-8 max-w-6xl">
-        {state.currentView === 'auth' && <Auth onLogin={handleLogin} />}
+        {state.currentView === 'auth' && !state.currentUser && (
+          <Auth onLogin={handleUserData} />
+        )}
         
         {state.currentView === 'library' && state.currentUser && (
           <Library 
             plans={state.currentUser.plans} 
             onSelectPlan={(id) => setState(prev => ({ ...prev, activePlanId: id, currentView: 'dashboard' }))} 
             onUpload={handleFileUpload}
-            onDeletePlan={(id) => {
-              deletePDF(id);
-              setState(prev => ({ 
-                ...prev, 
-                currentUser: prev.currentUser ? { ...prev.currentUser, plans: prev.currentUser.plans.filter(p => p.id !== id) } : null,
-                activePlanId: prev.activePlanId === id ? null : prev.activePlanId
-              }));
+            onDeletePlan={async (id) => {
+              if (confirm("Tem certeza que deseja excluir este plano? Esta ação não pode ser desfeita.")) {
+                await deletePDF(id);
+                const { error } = await supabase.from('reading_plans').delete().eq('id', id);
+                if (error) setDbError(`Erro ao deletar: ${error.message}`);
+                
+                setState(prev => ({ 
+                  ...prev, 
+                  currentUser: prev.currentUser ? { ...prev.currentUser, plans: prev.currentUser.plans.filter(p => p.id !== id) } : null,
+                  activePlanId: prev.activePlanId === id ? null : prev.activePlanId
+                }));
+              }
             }}
             onUpdateTitle={(id, title) => {
               if (!state.currentUser) return;
-              const updatedPlans = state.currentUser.plans.map(p => p.id === id ? { ...p, fileName: title } : p);
+              const updatedPlans = state.currentUser.plans.map(p => {
+                if (p.id === id) {
+                  const updated = { ...p, fileName: title };
+                  syncPlanToSupabase(updated);
+                  return updated;
+                }
+                return p;
+              });
               setState(prev => ({ ...prev, currentUser: prev.currentUser ? { ...prev.currentUser, plans: updatedPlans } : null }));
             }}
           />
@@ -210,7 +329,14 @@ const App: React.FC = () => {
             onStartReading={() => setState(prev => ({ ...prev, currentView: 'reader' }))}
             onUpdateTitle={(title) => {
               if (!state.currentUser) return;
-              const updatedPlans = state.currentUser.plans.map(p => p.id === activePlanMetadata.id ? { ...p, fileName: title } : p);
+              const updatedPlans = state.currentUser.plans.map(p => {
+                if (p.id === activePlanMetadata.id) {
+                  const updated = { ...p, fileName: title };
+                  syncPlanToSupabase(updated);
+                  return updated;
+                }
+                return p;
+              });
               setState(prev => ({ ...prev, currentUser: prev.currentUser ? { ...prev.currentUser, plans: updatedPlans } : null }));
             }}
           />
@@ -231,7 +357,7 @@ const App: React.FC = () => {
                 }));
               } catch (e) {
                 console.error(e);
-                alert("Erro ao gerar quiz. Verifique sua conexão ou chave de API.");
+                alert("Erro ao gerar quiz. Verifique sua chave de API Gemini.");
                 setState(prev => ({ ...prev, isGeneratingQuiz: false, currentView: 'dashboard' }));
               }
             }}
@@ -256,7 +382,9 @@ const App: React.FC = () => {
                     timeSpentSeconds: state.lastSessionTime
                   };
                   const nextIndex = p.currentDayIndex + 1 < p.days.length ? p.currentDayIndex + 1 : p.currentDayIndex;
-                  return { ...p, days: updatedDays, currentDayIndex: nextIndex };
+                  const updatedPlan = { ...p, days: updatedDays, currentDayIndex: nextIndex };
+                  syncPlanToSupabase(updatedPlan);
+                  return updatedPlan;
                 }
                 return p;
               });
@@ -277,7 +405,7 @@ const App: React.FC = () => {
       </main>
 
       <footer className="py-6 text-center text-slate-500 dark:text-slate-400 text-sm border-t border-slate-200 dark:border-slate-800">
-        © {new Date().getFullYear()} MindFlow - Leitura Inteligente com Gemini AI
+        © {new Date().getFullYear()} MindFlow - Cloud Sync Powered by Supabase
       </footer>
     </div>
   );
