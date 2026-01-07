@@ -90,7 +90,7 @@ const App: React.FC = () => {
         totalPages: item.total_pages,
         days: item.days,
         currentDayIndex: item.current_day_index,
-        lastAccessed: item.last_accessed,
+        lastAccessed: new Date(item.last_accessed).getTime(),
         storagePath: item.storage_path,
         pdfData: ""
       }));
@@ -108,10 +108,8 @@ const App: React.FC = () => {
         return;
       }
 
-      // 1. Tentar carregar do IndexedDB (Cache local)
       let data = await getPDF(state.activePlanId);
       
-      // 2. Se não estiver no local, buscar no Supabase Storage
       if (!data) {
         const plan = state.currentUser?.plans.find(p => p.id === state.activePlanId);
         if (plan?.storagePath) {
@@ -181,11 +179,9 @@ const App: React.FC = () => {
       const planId = crypto.randomUUID();
       const storagePath = `${state.currentUser.id}/${planId}.pdf`;
 
-      // 1. Converter Base64 para Blob para o Storage
       const response = await fetch(finalPdfData);
       const blob = await response.blob();
 
-      // 2. Upload para Supabase Storage
       const { error: uploadError } = await supabase.storage.from('pdfs').upload(storagePath, blob);
       if (uploadError) throw uploadError;
 
@@ -206,15 +202,18 @@ const App: React.FC = () => {
         total_pages: finalPagesCount,
         days: days,
         current_day_index: 0,
-        last_accessed: Date.now(),
+        last_accessed: new Date().toISOString(),
         storage_path: storagePath
       };
 
-      // 3. Salvar no Banco de Dados
       const { error: dbError } = await supabase.from('reading_plans').insert([newPlanData]);
-      if (dbError) throw dbError;
+      if (dbError) {
+        if (dbError.message.includes("storage_path")) {
+          throw new Error("A coluna 'storage_path' não foi encontrada na sua tabela. No Supabase, execute: ALTER TABLE reading_plans ADD COLUMN storage_path TEXT;");
+        }
+        throw dbError;
+      }
 
-      // 4. Salvar no Cache Local (IndexedDB)
       await savePDF(planId, finalPdfData);
 
       const newPlan: ReadingPlan = {
@@ -223,7 +222,7 @@ const App: React.FC = () => {
         originalFileName: newPlanData.original_file_name,
         totalPages: newPlanData.total_pages,
         currentDayIndex: newPlanData.current_day_index,
-        lastAccessed: newPlanData.last_accessed,
+        lastAccessed: Date.now(),
         storagePath: storagePath,
         pdfData: ""
       };
@@ -236,7 +235,7 @@ const App: React.FC = () => {
         pendingPdf: null
       }));
     } catch (e: any) {
-      alert(`Erro ao sincronizar com a nuvem: ${e.message}`);
+      alert(`Erro ao sincronizar: ${e.message}`);
     } finally {
       setIsCloudSyncing(false);
     }
@@ -250,7 +249,7 @@ const App: React.FC = () => {
         file_name: plan.fileName,
         current_day_index: plan.currentDayIndex,
         days: plan.days,
-        last_accessed: Date.now()
+        last_accessed: new Date().toISOString()
       })
       .eq('id', plan.id);
   };
