@@ -1,20 +1,31 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { QuizQuestion } from '../types';
 
 interface QuizProps {
   questions: QuizQuestion[] | null;
   isLoading: boolean;
-  onFinish: (score: number) => void;
+  reviewMode?: boolean; // Novo: Se for verdadeiro, mostra respostas salvas
+  initialAnswers?: number[]; // Novo: Respostas salvas do usuário
+  onFinish: (score: number, answers: number[]) => void;
   onCancel: () => void;
 }
 
-const Quiz: React.FC<QuizProps> = ({ questions, isLoading, onFinish, onCancel }) => {
+const Quiz: React.FC<QuizProps> = ({ questions, isLoading, reviewMode = false, initialAnswers = [], onFinish, onCancel }) => {
   const [currentIdx, setCurrentIdx] = useState(0);
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
   const [isAnswered, setIsAnswered] = useState(false);
   const [correctCount, setCorrectCount] = useState(0);
   const [showResult, setShowResult] = useState(false);
+  const [userAnswers, setUserAnswers] = useState<number[]>([]);
+
+  // Inicializa estado para modo revisão
+  useEffect(() => {
+    if (reviewMode && initialAnswers.length > 0) {
+      setIsAnswered(true);
+      setSelectedOption(initialAnswers[currentIdx]);
+    }
+  }, [currentIdx, reviewMode, initialAnswers]);
 
   if (isLoading) {
     return (
@@ -26,8 +37,8 @@ const Quiz: React.FC<QuizProps> = ({ questions, isLoading, onFinish, onCancel })
           </div>
         </div>
         <div className="space-y-2">
-          <h2 className="text-2xl font-bold text-slate-800">Gerando seu quiz personalizado...</h2>
-          <p className="text-slate-500 max-w-md">O Gemini AI está analisando o conteúdo que você acabou de ler para criar 5 perguntas exclusivas.</p>
+          <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Gerando seu quiz personalizado...</h2>
+          <p className="text-slate-500 dark:text-slate-400 max-w-md">O Gemini AI está analisando o conteúdo que você acabou de ler para criar 5 perguntas exclusivas.</p>
         </div>
       </div>
     );
@@ -38,9 +49,13 @@ const Quiz: React.FC<QuizProps> = ({ questions, isLoading, onFinish, onCancel })
   const currentQ = questions[currentIdx];
 
   const handleAnswer = (idx: number) => {
-    if (isAnswered) return;
+    if (isAnswered || reviewMode) return;
     setSelectedOption(idx);
     setIsAnswered(true);
+    
+    const newAnswers = [...userAnswers, idx];
+    setUserAnswers(newAnswers);
+
     if (idx === currentQ.correctAnswer) {
       setCorrectCount(prev => prev + 1);
     }
@@ -49,33 +64,36 @@ const Quiz: React.FC<QuizProps> = ({ questions, isLoading, onFinish, onCancel })
   const nextQuestion = () => {
     if (currentIdx < questions.length - 1) {
       setCurrentIdx(prev => prev + 1);
-      setSelectedOption(null);
-      setIsAnswered(false);
+      if (!reviewMode) {
+        setSelectedOption(null);
+        setIsAnswered(false);
+      }
     } else {
-      setShowResult(true);
+      if (reviewMode) onCancel();
+      else setShowResult(true);
     }
   };
 
-  if (showResult) {
+  if (showResult && !reviewMode) {
     return (
-      <div className="bg-white rounded-3xl p-12 shadow-xl border border-slate-100 text-center max-w-xl mx-auto space-y-8 animate-in zoom-in duration-300">
+      <div className="bg-white dark:bg-slate-900 rounded-3xl p-12 shadow-xl border border-slate-100 dark:border-slate-800 text-center max-w-xl mx-auto space-y-8 animate-in zoom-in duration-300">
         <div className="text-6xl mb-4">
           {correctCount >= 3 ? '🎉' : '📚'}
         </div>
         <div>
-          <h2 className="text-3xl font-bold text-slate-800 mb-2">Quiz Finalizado!</h2>
-          <p className="text-slate-500 text-lg">Seu desempenho hoje:</p>
+          <h2 className="text-3xl font-bold text-slate-800 dark:text-slate-100 mb-2">Quiz Finalizado!</h2>
+          <p className="text-slate-500 dark:text-slate-400 text-lg">Seu desempenho hoje:</p>
         </div>
         
-        <div className="bg-slate-50 py-8 rounded-2xl border-2 border-dashed border-slate-200">
-          <span className="text-6xl font-black text-indigo-600">{correctCount}</span>
-          <span className="text-3xl text-slate-400 font-bold"> / {questions.length}</span>
+        <div className="bg-slate-50 dark:bg-slate-800 py-8 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700">
+          <span className="text-6xl font-black text-indigo-600 dark:text-indigo-400">{correctCount}</span>
+          <span className="text-3xl text-slate-400 dark:text-slate-500 font-bold"> / {questions.length}</span>
         </div>
 
         <div className="flex flex-col gap-3">
           <button 
-            onClick={() => onFinish(correctCount)}
-            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 px-8 rounded-2xl shadow-lg shadow-indigo-200 transition-all hover:scale-[1.02]"
+            onClick={() => onFinish(correctCount, userAnswers)}
+            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 px-8 rounded-2xl shadow-lg shadow-indigo-200 dark:shadow-none transition-all hover:scale-[1.02]"
           >
             Concluir o Dia
           </button>
@@ -85,15 +103,18 @@ const Quiz: React.FC<QuizProps> = ({ questions, isLoading, onFinish, onCancel })
   }
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
+    <div className="max-w-2xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4">
       <div className="flex justify-between items-center px-2">
-        <span className="text-sm font-bold text-slate-400 uppercase tracking-wider">Questão {currentIdx + 1} de {questions.length}</span>
-        <button onClick={onCancel} className="text-slate-400 hover:text-slate-600 text-sm font-medium">Sair do Quiz</button>
+        <div className="flex items-center gap-3">
+            <span className="text-sm font-bold text-slate-400 uppercase tracking-wider">Questão {currentIdx + 1} de {questions.length}</span>
+            {reviewMode && <span className="bg-amber-100 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tighter">Modo Revisão</span>}
+        </div>
+        <button onClick={onCancel} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm font-medium">Sair do Quiz</button>
       </div>
 
-      <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-100 min-h-[400px] flex flex-col justify-between">
+      <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 shadow-sm border border-slate-100 dark:border-slate-800 min-h-[400px] flex flex-col justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800 mb-8 leading-tight">
+          <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100 mb-8 leading-tight">
             {currentQ.question}
           </h2>
 
@@ -102,14 +123,14 @@ const Quiz: React.FC<QuizProps> = ({ questions, isLoading, onFinish, onCancel })
               let btnClass = "w-full p-4 rounded-2xl border-2 text-left transition-all font-medium flex items-center justify-between group ";
               
               if (!isAnswered) {
-                btnClass += "border-slate-100 hover:border-indigo-600 hover:bg-indigo-50 text-slate-700";
+                btnClass += "border-slate-100 dark:border-slate-800 hover:border-indigo-600 dark:hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300";
               } else {
                 if (idx === currentQ.correctAnswer) {
-                  btnClass += "border-emerald-500 bg-emerald-50 text-emerald-800";
+                  btnClass += "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-400";
                 } else if (idx === selectedOption) {
-                  btnClass += "border-red-500 bg-red-50 text-red-800";
+                  btnClass += "border-red-500 bg-red-50 dark:bg-red-950/20 text-red-800 dark:text-red-400";
                 } else {
-                  btnClass += "border-slate-100 text-slate-400 opacity-60";
+                  btnClass += "border-slate-100 dark:border-slate-800 text-slate-400 dark:text-slate-600 opacity-60";
                 }
               }
 
@@ -134,16 +155,16 @@ const Quiz: React.FC<QuizProps> = ({ questions, isLoading, onFinish, onCancel })
         </div>
 
         {isAnswered && (
-          <div className="mt-8 pt-8 border-t border-slate-100 animate-in slide-in-from-top-4">
-            <div className="mb-6 p-4 bg-indigo-50 rounded-xl text-indigo-800 text-sm leading-relaxed">
+          <div className="mt-8 pt-8 border-t border-slate-100 dark:border-slate-800 animate-in slide-in-from-top-4">
+            <div className="mb-6 p-4 bg-indigo-50 dark:bg-indigo-950/20 rounded-xl text-indigo-800 dark:text-indigo-300 text-sm leading-relaxed">
               <span className="font-bold block mb-1">Explicação:</span>
               {currentQ.explanation}
             </div>
             <button 
               onClick={nextQuestion}
-              className="w-full bg-slate-900 text-white font-bold py-4 px-8 rounded-2xl transition-all hover:bg-slate-800 shadow-xl"
+              className="w-full bg-slate-900 dark:bg-indigo-600 text-white font-bold py-4 px-8 rounded-2xl transition-all hover:bg-slate-800 dark:hover:bg-indigo-500 shadow-xl"
             >
-              {currentIdx < questions.length - 1 ? 'Próxima Pergunta' : 'Ver Resultados'}
+              {currentIdx < questions.length - 1 ? 'Próxima Pergunta' : reviewMode ? 'Fechar Revisão' : 'Ver Resultados'}
             </button>
           </div>
         )}

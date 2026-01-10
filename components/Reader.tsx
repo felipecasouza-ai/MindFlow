@@ -12,11 +12,8 @@ interface ReaderProps {
 }
 
 const Reader: React.FC<ReaderProps> = ({ pdfData, currentDay, onDayComplete, onClose }) => {
-  // Estados de UI (Devem ser instantâneos para o usuário ver o número mudar)
   const [displayPage, setDisplayPage] = useState(currentDay.startPage);
   const [displayZoom, setDisplayZoom] = useState(1.5);
-  
-  // Estados de Renderização (Estes disparam o processamento pesado do PDF.js)
   const [renderPageNum, setRenderPageNum] = useState(currentDay.startPage);
   const [renderZoom, setRenderZoom] = useState(1.5);
 
@@ -27,11 +24,10 @@ const Reader: React.FC<ReaderProps> = ({ pdfData, currentDay, onDayComplete, onC
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const renderTaskRef = useRef<any>(null);
-  const textContentRef = useRef<string>("");
+  const pageTextsRef = useRef<Record<number, string>>({}); // Agora armazena texto por página individualmente
   const readerContainerRef = useRef<HTMLDivElement>(null);
   const pdfDocRef = useRef<any>(null);
 
-  // Timer de estudo
   useEffect(() => {
     const timer = setInterval(() => {
       setSecondsSpent(prev => prev + 1);
@@ -39,12 +35,6 @@ const Reader: React.FC<ReaderProps> = ({ pdfData, currentDay, onDayComplete, onC
     return () => clearInterval(timer);
   }, []);
 
-  /**
-   * SINCRONIZAÇÃO DE UI vs RENDERIZAÇÃO
-   * Em tablets, o Chrome prioriza a tarefa JS mais pesada. 
-   * Aumentamos o delay para 150ms para garantir que o navegador termine 
-   * o "Layout/Paint" do texto (número da página/zoom) antes de travar a CPU com o PDF.
-   */
   useEffect(() => {
     const timer = setTimeout(() => {
       setRenderPageNum(displayPage);
@@ -53,7 +43,6 @@ const Reader: React.FC<ReaderProps> = ({ pdfData, currentDay, onDayComplete, onC
     return () => clearTimeout(timer);
   }, [displayPage, displayZoom]);
 
-  // Carregamento Único do Documento
   useEffect(() => {
     let isMounted = true;
     const loadDocument = async () => {
@@ -84,7 +73,6 @@ const Reader: React.FC<ReaderProps> = ({ pdfData, currentDay, onDayComplete, onC
     return () => { isMounted = false; };
   }, [pdfData]);
 
-  // Renderização Real no Canvas
   useEffect(() => {
     if (!pdfDocRef.current || isDocLoading) return;
 
@@ -112,14 +100,16 @@ const Reader: React.FC<ReaderProps> = ({ pdfData, currentDay, onDayComplete, onC
           }
         }
 
-        // Extração de texto para o Quiz
-        if (!isCancelled && renderPageNum === displayPage) {
+        // Extração de texto para a página atual
+        if (!isCancelled) {
           const text = await page.getTextContent();
-          const pageStr = text.items.map((item: any) => item.str).join(" ");
-          if (renderPageNum === currentDay.startPage) {
-            textContentRef.current = pageStr;
-          } else if (!textContentRef.current.includes(pageStr.substring(0, 30))) {
-            textContentRef.current += " " + pageStr;
+          const pageStr = text.items
+            .filter((item: any) => item.str !== undefined)
+            .map((item: any) => item.str)
+            .join(" ");
+          
+          if (pageStr.trim().length > 0) {
+            pageTextsRef.current[renderPageNum] = pageStr;
           }
         }
       } catch (e: any) {
@@ -129,7 +119,6 @@ const Reader: React.FC<ReaderProps> = ({ pdfData, currentDay, onDayComplete, onC
       }
     };
 
-    // Usar rAF garante que o browser teve um frame de respiro após a mudança de estado
     const frameId = requestAnimationFrame(() => {
       render();
     });
@@ -157,18 +146,29 @@ const Reader: React.FC<ReaderProps> = ({ pdfData, currentDay, onDayComplete, onC
 
   const progress = ((displayPage - currentDay.startPage + 1) / (currentDay.endPage - currentDay.startPage + 1)) * 100;
 
+  // Função para consolidar todo o texto das páginas lidas hoje
+  const handleComplete = () => {
+    const allText = Object.keys(pageTextsRef.current)
+      .map(key => Number(key))
+      .filter(p => p >= currentDay.startPage && p <= currentDay.endPage)
+      .sort((a, b) => a - b)
+      .map(p => pageTextsRef.current[p])
+      .join("\n\n");
+    
+    onDayComplete(allText, secondsSpent);
+  };
+
   if (isDocLoading) {
     return (
       <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col items-center justify-center text-white">
         <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-        <p className="text-slate-400 font-medium tracking-tight">Otimizando exibição para Tablet...</p>
+        <p className="text-slate-400 font-medium tracking-tight">Otimizando exibição...</p>
       </div>
     );
   }
 
   return (
     <div ref={readerContainerRef} className="fixed inset-0 z-50 bg-slate-950 flex flex-col font-sans overflow-hidden select-none">
-      {/* Top Bar - Z-index alto para garantir visibilidade */}
       <div className="relative z-50 bg-slate-900/95 backdrop-blur-md px-4 py-2 flex justify-between items-center text-white border-b border-white/5 shadow-2xl">
         <div className="flex items-center gap-3">
           <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-lg active:scale-90 transition-all">
@@ -180,7 +180,6 @@ const Reader: React.FC<ReaderProps> = ({ pdfData, currentDay, onDayComplete, onC
           </div>
         </div>
 
-        {/* CONTROLES DE ZOOM - Mostram displayZoom instantaneamente */}
         <div className="flex items-center bg-slate-800/80 rounded-xl px-1 border border-white/10">
           <button onClick={handleZoomOut} className="p-2 text-slate-400 hover:text-white active:bg-white/10 rounded-lg">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -194,14 +193,13 @@ const Reader: React.FC<ReaderProps> = ({ pdfData, currentDay, onDayComplete, onC
         </div>
 
         <div className="flex items-center gap-2">
-          {/* NÚMERO DA PÁGINA - Mostra displayPage instantaneamente */}
           <div className="bg-indigo-600 border border-indigo-400/30 px-3 py-1.5 rounded-lg text-xs font-black text-white shadow-inner tabular-nums">
             {displayPage} / {currentDay.endPage}
           </div>
 
           {displayPage === currentDay.endPage && (
             <button 
-              onClick={() => onDayComplete(textContentRef.current, secondsSpent)}
+              onClick={handleComplete}
               className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-black py-2 px-4 rounded-lg animate-pulse uppercase shadow-lg shadow-emerald-900/20"
             >
               Quiz
@@ -210,7 +208,6 @@ const Reader: React.FC<ReaderProps> = ({ pdfData, currentDay, onDayComplete, onC
         </div>
       </div>
 
-      {/* Viewport Principal */}
       <div className="flex-grow overflow-auto bg-slate-950 p-2 sm:p-6 flex justify-center items-start custom-scrollbar touch-pan-x touch-pan-y">
         <div className="relative bg-white shadow-2xl transform-gpu transition-opacity duration-300" style={{ opacity: isRendering ? 0.6 : 1 }}>
           <canvas 
@@ -227,7 +224,6 @@ const Reader: React.FC<ReaderProps> = ({ pdfData, currentDay, onDayComplete, onC
         </div>
       </div>
 
-      {/* Navegação Inferior */}
       <div className="relative z-50 bg-slate-900/95 backdrop-blur-md p-4 border-t border-white/5 flex justify-center items-center gap-8 shadow-[0_-10px_30px_rgba(0,0,0,0.5)]">
         <button 
           onClick={handlePrev} 
@@ -265,12 +261,6 @@ const Reader: React.FC<ReaderProps> = ({ pdfData, currentDay, onDayComplete, onC
         </button>
       </div>
 
-      {/* CONTADOR DE TEMPO - Escondido no tablet (md/lg) por pedido do usuário */}
-      <div className="hidden xl:block fixed bottom-24 right-6 bg-slate-900/80 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10 text-xs font-black text-slate-300 z-50 pointer-events-none shadow-2xl">
-        {Math.floor(secondsSpent / 60)}m {String(secondsSpent % 60).padStart(2, '0')}s
-      </div>
-
-      {/* Barra de Progresso Master */}
       <div className="h-1.5 bg-slate-800 w-full relative z-50">
         <div 
           className="h-full bg-gradient-to-r from-indigo-600 via-indigo-500 to-emerald-500 transition-all duration-700 shadow-[0_0_15px_rgba(99,102,241,0.6)]" 

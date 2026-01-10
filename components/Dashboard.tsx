@@ -5,10 +5,12 @@ import { ReadingPlan } from '../types';
 interface DashboardProps {
   plan: ReadingPlan;
   onStartReading: () => void;
+  onReviewQuiz: (dayIdx: number) => void; // Novo: Handler para revisar quiz
   onUpdateTitle: (newTitle: string) => void;
+  backgroundStatus?: { current: number, total: number };
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ plan, onStartReading, onUpdateTitle }) => {
+const Dashboard: React.FC<DashboardProps> = ({ plan, onStartReading, onReviewQuiz, onUpdateTitle, backgroundStatus }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [tempTitle, setTempTitle] = useState(plan.fileName);
 
@@ -21,6 +23,9 @@ const Dashboard: React.FC<DashboardProps> = ({ plan, onStartReading, onUpdateTit
       setIsEditing(false);
     }
   };
+
+  const quizzesReady = plan.days.filter(d => d.quiz && d.quiz.length > 0).length;
+  const quizzesTotal = plan.days.length;
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -61,6 +66,17 @@ const Dashboard: React.FC<DashboardProps> = ({ plan, onStartReading, onUpdateTit
             </span>
           </div>
         </div>
+
+        <div className="bg-slate-50 dark:bg-slate-800/50 px-6 py-4 rounded-2xl border border-slate-100 dark:border-slate-800 flex flex-col items-center gap-1 min-w-[140px]">
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Inteligência</span>
+          <div className="flex items-baseline gap-1">
+            <span className={`text-2xl font-black ${quizzesReady === quizzesTotal ? 'text-emerald-500' : 'text-indigo-500 animate-pulse'}`}>
+              {backgroundStatus ? backgroundStatus.current : quizzesReady}
+            </span>
+            <span className="text-slate-400 font-bold">/ {quizzesTotal}</span>
+          </div>
+          <p className="text-[10px] text-slate-500 font-bold">Quizzes prontos</p>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -73,24 +89,50 @@ const Dashboard: React.FC<DashboardProps> = ({ plan, onStartReading, onUpdateTit
           </div>
           
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
-            {plan.days.map((day, idx) => (
-              <div 
-                key={day.dayNumber}
-                className={`p-4 rounded-2xl border flex flex-col items-center justify-center gap-2 transition-all ${
-                  day.isCompleted 
-                    ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-100 dark:border-emerald-900/30 text-emerald-700 dark:text-emerald-400' 
-                    : idx === plan.currentDayIndex 
-                    ? 'bg-indigo-600 border-indigo-600 text-white ring-4 ring-indigo-100 dark:ring-indigo-900/30 scale-105' 
-                    : 'bg-slate-50 dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-400 dark:text-slate-500'
-                }`}
-              >
-                <span className="text-xs uppercase font-bold opacity-70">Dia</span>
-                <span className="text-2xl font-bold">{day.dayNumber}</span>
-                {day.isCompleted && (
-                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                )}
-              </div>
-            ))}
+            {plan.days.map((day, idx) => {
+              const hasQuiz = day.quiz && day.quiz.length > 0;
+              const hasUserAnswers = day.userAnswers && day.userAnswers.length > 0;
+              const isCurrent = idx === plan.currentDayIndex && !day.isCompleted;
+              
+              return (
+                <div 
+                  key={day.dayNumber}
+                  onClick={() => day.isCompleted && hasQuiz && hasUserAnswers && onReviewQuiz(idx)}
+                  className={`p-4 rounded-2xl border flex flex-col items-center justify-center gap-2 transition-all relative group cursor-pointer ${
+                    day.isCompleted 
+                      ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-100 dark:border-emerald-900/30 text-emerald-700 dark:text-emerald-400 hover:scale-[1.03]' 
+                      : isCurrent
+                      ? 'bg-indigo-600 border-indigo-600 text-white ring-4 ring-indigo-100 dark:ring-indigo-900/30 scale-105' 
+                      : 'bg-slate-50 dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-400 dark:text-slate-500'
+                  }`}
+                >
+                  <div className="absolute top-2 right-2">
+                    {day.isCompleted ? (
+                      <div className="flex flex-col items-end gap-1">
+                        <div className="bg-emerald-500 text-white p-0.5 rounded-full">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                        </div>
+                        {hasUserAnswers && (
+                          <div className="bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 p-1 rounded-md shadow-sm opacity-0 group-hover:opacity-100 transition-opacity translate-y-2 group-hover:translate-y-0" title="Ver Quiz">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                          </div>
+                        )}
+                      </div>
+                    ) : hasQuiz ? (
+                      <div title="Quiz pronto">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className={`${isCurrent ? 'text-indigo-200' : 'text-indigo-400 animate-pulse'}`}><path d="M12 2v4"/><path d="M12 18v4"/><path d="M4.93 4.93l2.83 2.83"/><path d="M16.24 16.24l2.83 2.83"/><path d="M2 12h4"/><path d="M18 12h4"/><path d="M4.93 19.07l2.83-2.83"/><path d="M16.24 7.76l2.83-2.83"/></svg>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <span className="text-xs uppercase font-bold opacity-70">Dia</span>
+                  <span className="text-2xl font-bold">{day.dayNumber}</span>
+                  {day.isCompleted && (
+                    <span className="text-[10px] font-black uppercase mt-1 opacity-60">Finalizado</span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
 

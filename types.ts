@@ -6,6 +6,8 @@ export interface ReadingDay {
   isCompleted: boolean;
   quizScore?: number;
   timeSpentSeconds?: number;
+  quiz?: QuizQuestion[];
+  userAnswers?: number[]; // Novo: armazena os índices das respostas escolhidas
 }
 
 export interface QuizQuestion {
@@ -15,13 +17,11 @@ export interface QuizQuestion {
   explanation: string;
 }
 
-// Added MindMapNode interface to support AI-generated study review features
 export interface MindMapNode {
   label: string;
   children?: MindMapNode[];
 }
 
-// Added StudyMaterials interface to group AI-generated summary, mind map and infographic data
 export interface StudyMaterials {
   summary: string;
   mindMap: MindMapNode;
@@ -42,7 +42,7 @@ export interface ReadingPlan {
   pdfData: string;
   lastAccessed: number;
   storagePath?: string;
-  user_id?: string; // Adicionado para rastreamento no admin
+  user_id?: string;
 }
 
 export interface User {
@@ -69,4 +69,6 @@ export interface AppState {
   theme: ThemeMode;
   pendingPdf: PendingPdf | null;
   lastSessionTime?: number;
+  quizReviewMode?: boolean; // Novo: controla se estamos apenas visualizando um quiz feito
+  reviewAnswers?: number[]; // Novo: respostas do usuário para o modo revisão
 }
