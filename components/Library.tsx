@@ -1,6 +1,7 @@
 
 import React, { useState } from 'react';
 import { ReadingPlan } from '../types';
+import { getPDF } from '../services/dbService';
 
 interface LibraryProps {
   plans: ReadingPlan[];
@@ -14,6 +15,7 @@ interface LibraryProps {
 const Library: React.FC<LibraryProps> = ({ plans, onSelectPlan, onUpload, onDeletePlan, onUpdateTitle, userEmail }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [tempTitle, setTempTitle] = useState('');
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const isAdmin = userEmail === 'admin@mindflow.com';
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -24,6 +26,37 @@ const Library: React.FC<LibraryProps> = ({ plans, onSelectPlan, onUpload, onDele
         return;
       }
       onUpload(file);
+    }
+  };
+
+  const handleDownloadPlan = async (plan: ReadingPlan) => {
+    setDownloadingId(plan.id);
+    try {
+      const pdfData = await getPDF(plan.id);
+      if (!pdfData) {
+        alert("PDF não encontrado localmente.");
+        return;
+      }
+
+      const binaryString = atob(pdfData.split(',')[1]);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      const blob = new Blob([bytes], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${plan.fileName}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      alert("Erro ao processar download.");
+    } finally {
+      setDownloadingId(null);
     }
   };
 
@@ -79,6 +112,7 @@ const Library: React.FC<LibraryProps> = ({ plans, onSelectPlan, onUpload, onDele
             const completed = plan.days.filter(d => d.isCompleted).length;
             const progress = Math.round((completed / plan.days.length) * 100);
             const isEditing = editingId === plan.id;
+            const isDownloading = downloadingId === plan.id;
             
             return (
               <div 
@@ -91,6 +125,14 @@ const Library: React.FC<LibraryProps> = ({ plans, onSelectPlan, onUpload, onDele
                       <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
                     </div>
                     <div className="flex gap-1">
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); handleDownloadPlan(plan); }}
+                        disabled={isDownloading}
+                        className={`p-2 transition-colors ${isDownloading ? 'text-indigo-500 animate-bounce' : 'text-slate-300 dark:text-slate-600 hover:text-indigo-500'}`}
+                        title="Baixar PDF Editado"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                      </button>
                       <button 
                         onClick={(e) => { e.stopPropagation(); startEditing(plan); }}
                         className="text-slate-300 dark:text-slate-600 hover:text-indigo-500 p-2 transition-colors"
