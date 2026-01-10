@@ -63,7 +63,7 @@ export interface PendingPdf {
 export interface AppState {
   currentUser: User | null;
   activePlanId: string | null;
-  currentView: 'auth' | 'library' | 'dashboard' | 'reader' | 'quiz' | 'stats' | 'page-selector' | 'admin';
+  currentView: 'auth' | 'library' | 'dashboard' | 'reader' | 'quiz' | 'stats' | 'page-selector' | 'admin' | 'settings';
   isGeneratingQuiz: boolean;
   currentQuiz: QuizQuestion[] | null;
   theme: ThemeMode;

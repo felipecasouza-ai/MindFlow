@@ -10,6 +10,7 @@ import Auth from './components/Auth';
 import Library from './components/Library';
 import PageSelector from './components/PageSelector';
 import AdminPanel from './components/AdminPanel';
+import Settings from './components/Settings';
 import { generateQuiz } from './services/geminiService';
 import { savePDF, getPDF, deletePDF } from './services/dbService';
 import { supabase } from './services/supabaseClient';
@@ -274,6 +275,10 @@ const App: React.FC = () => {
         {state.currentView === 'auth' && !state.currentUser && <Auth onLogin={handleUserData} />}
         
         {state.currentView === 'admin' && state.currentUser?.email === ADMIN_EMAIL && <AdminPanel />}
+
+        {state.currentView === 'settings' && state.currentUser && (
+          <Settings onClose={() => setState(prev => ({ ...prev, currentView: 'library' }))} />
+        )}
 
         {state.currentView === 'library' && state.currentUser && (
           <Library 
