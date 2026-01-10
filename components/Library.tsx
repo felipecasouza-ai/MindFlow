@@ -8,11 +8,13 @@ interface LibraryProps {
   onUpload: (file: File) => void;
   onDeletePlan: (id: string) => void;
   onUpdateTitle: (id: string, newTitle: string) => void;
+  userEmail?: string;
 }
 
-const Library: React.FC<LibraryProps> = ({ plans, onSelectPlan, onUpload, onDeletePlan, onUpdateTitle }) => {
+const Library: React.FC<LibraryProps> = ({ plans, onSelectPlan, onUpload, onDeletePlan, onUpdateTitle, userEmail }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [tempTitle, setTempTitle] = useState('');
+  const isAdmin = userEmail === 'admin@mindflow.com';
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -41,20 +43,24 @@ const Library: React.FC<LibraryProps> = ({ plans, onSelectPlan, onUpload, onDele
     <div className="space-y-8 animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h2 className="text-3xl font-bold text-slate-800 dark:text-slate-100 font-heading">Minha Biblioteca</h2>
+          <h2 className="text-3xl font-bold text-slate-800 dark:text-slate-100 font-heading">
+            {isAdmin ? 'Visualizando sua Biblioteca' : 'Minha Biblioteca'}
+          </h2>
           <p className="text-slate-500 dark:text-slate-400">Você tem {plans.length} {plans.length === 1 ? 'livro sendo lido' : 'livros na coleção'}.</p>
         </div>
         
-        <label className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-2xl shadow-lg shadow-indigo-100 dark:shadow-none cursor-pointer transition-all hover:scale-105 active:scale-95 flex items-center gap-2">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
-          Adicionar PDF
-          <input 
-            type="file" 
-            accept="application/pdf" 
-            className="hidden" 
-            onChange={handleFileChange} 
-          />
-        </label>
+        {!isAdmin && (
+          <label className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-2xl shadow-lg shadow-indigo-100 dark:shadow-none cursor-pointer transition-all hover:scale-105 active:scale-95 flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+            Adicionar PDF
+            <input 
+              type="file" 
+              accept="application/pdf" 
+              className="hidden" 
+              onChange={handleFileChange} 
+            />
+          </label>
+        )}
       </div>
 
       {plans.length === 0 ? (
@@ -63,7 +69,9 @@ const Library: React.FC<LibraryProps> = ({ plans, onSelectPlan, onUpload, onDele
             <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
           </div>
           <h3 className="text-xl font-bold text-slate-700 dark:text-slate-300">Sua estante está vazia</h3>
-          <p className="text-slate-500 dark:text-slate-400 max-w-xs mx-auto">Envie um arquivo PDF para começar a acompanhar seu progresso diário.</p>
+          <p className="text-slate-500 dark:text-slate-400 max-w-xs mx-auto">
+            {isAdmin ? 'Adicione um PDF em uma conta de usuário normal para ver conteúdo aqui.' : 'Envie um arquivo PDF para começar a acompanhar seu progresso diário.'}
+          </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

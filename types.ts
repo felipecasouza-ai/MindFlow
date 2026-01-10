@@ -15,13 +15,13 @@ export interface QuizQuestion {
   explanation: string;
 }
 
-// MindMapNode defines the recursive structure for the mind map visualization
+// Added MindMapNode interface to support AI-generated study review features
 export interface MindMapNode {
   label: string;
   children?: MindMapNode[];
 }
 
-// StudyMaterials consolidates AI-generated content for daily review
+// Added StudyMaterials interface to group AI-generated summary, mind map and infographic data
 export interface StudyMaterials {
   summary: string;
   mindMap: MindMapNode;
@@ -41,7 +41,8 @@ export interface ReadingPlan {
   currentDayIndex: number;
   pdfData: string;
   lastAccessed: number;
-  storagePath?: string; // Novo campo para o caminho no Supabase Storage
+  storagePath?: string;
+  user_id?: string; // Adicionado para rastreamento no admin
 }
 
 export interface User {
@@ -56,13 +57,13 @@ export interface PendingPdf {
   name: string;
   data: string;
   totalPages: number;
-  fileBlob?: Blob; // Guardar o blob original para upload eficiente
+  fileBlob?: Blob;
 }
 
 export interface AppState {
   currentUser: User | null;
   activePlanId: string | null;
-  currentView: 'auth' | 'library' | 'dashboard' | 'reader' | 'quiz' | 'stats' | 'page-selector';
+  currentView: 'auth' | 'library' | 'dashboard' | 'reader' | 'quiz' | 'stats' | 'page-selector' | 'admin';
   isGeneratingQuiz: boolean;
   currentQuiz: QuizQuestion[] | null;
   theme: ThemeMode;

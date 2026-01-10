@@ -9,11 +9,13 @@ import Stats from './components/Stats';
 import Auth from './components/Auth';
 import Library from './components/Library';
 import PageSelector from './components/PageSelector';
+import AdminPanel from './components/AdminPanel';
 import { generateQuiz } from './services/geminiService';
 import { savePDF, getPDF, deletePDF } from './services/dbService';
 import { supabase } from './services/supabaseClient';
 
 const PDF_JS_VERSION = '3.11.174';
+const ADMIN_EMAIL = 'admin@mindflow.com';
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>(() => {
@@ -79,7 +81,7 @@ const App: React.FC = () => {
 
       if (error) {
         setDbError(`Erro no banco: ${error.message}`);
-        setState(prev => ({ ...prev, currentUser: { id: userId, email, plans: [] }, currentView: 'library' }));
+        setState(prev => ({ ...prev, currentUser: { id: userId, email, plans: [] }, currentView: email === ADMIN_EMAIL ? 'admin' : 'library' }));
         return;
       }
 
@@ -90,13 +92,16 @@ const App: React.FC = () => {
         totalPages: item.total_pages,
         days: item.days,
         currentDayIndex: item.current_day_index,
-        // Ensure lastAccessed is always a number (milliseconds)
         lastAccessed: typeof item.last_accessed === 'number' ? item.last_accessed : Number(item.last_accessed) || Date.now(),
         storagePath: item.storage_path,
         pdfData: ""
       }));
 
-      setState(prev => ({ ...prev, currentUser: { id: userId, email, plans }, currentView: 'library' }));
+      setState(prev => ({ 
+        ...prev, 
+        currentUser: { id: userId, email, plans }, 
+        currentView: email === ADMIN_EMAIL ? 'admin' : 'library' 
+      }));
     } catch (e) {
       setDbError("Falha na conexão.");
     }
@@ -141,7 +146,7 @@ const App: React.FC = () => {
   }, [state.activePlanId, state.currentUser]);
 
   const handleFileUpload = async (file: File) => {
-    if (!state.currentUser) return;
+    if (!state.currentUser || state.currentUser.email === ADMIN_EMAIL) return;
     const reader = new FileReader();
     reader.onload = async (e) => {
       const result = e.target?.result as string;
@@ -172,7 +177,7 @@ const App: React.FC = () => {
     reader.readAsDataURL(file);
   };
 
-  const finalizePlan = async (finalPdfData: string, finalPagesCount: number) => {
+  const finalizePlan = async (finalPdfData: string, finalPagesCount: number, calculatedDays: ReadingDay[]) => {
     if (!state.currentUser || !state.pendingPdf) return;
     setIsCloudSyncing(true);
 
@@ -186,36 +191,22 @@ const App: React.FC = () => {
       const { error: uploadError } = await supabase.storage.from('pdfs').upload(storagePath, blob);
       if (uploadError) throw uploadError;
 
-      const pagesPerDay = 10;
-      const totalDays = Math.ceil(finalPagesCount / pagesPerDay);
-      const days: ReadingDay[] = Array.from({ length: totalDays }, (_, i) => ({
-        dayNumber: i + 1,
-        startPage: i * pagesPerDay + 1,
-        endPage: Math.min((i + 1) * pagesPerDay, finalPagesCount),
-        isCompleted: false
-      }));
-
-      // Important: last_accessed must be a number (bigint in DB)
       const timestamp = Date.now();
       const newPlanData = {
         id: planId,
         user_id: state.currentUser.id,
+        user_email: state.currentUser.email,
         file_name: state.pendingPdf.name.replace('.pdf', ''),
         original_file_name: state.pendingPdf.name,
         total_pages: finalPagesCount,
-        days: days,
+        days: calculatedDays,
         current_day_index: 0,
         last_accessed: timestamp,
         storage_path: storagePath
       };
 
       const { error: dbError } = await supabase.from('reading_plans').insert([newPlanData]);
-      if (dbError) {
-        if (dbError.message.includes("storage_path")) {
-          throw new Error("A coluna 'storage_path' não foi encontrada na sua tabela. No Supabase, execute: ALTER TABLE reading_plans ADD COLUMN storage_path TEXT;");
-        }
-        throw dbError;
-      }
+      if (dbError) throw dbError;
 
       await savePDF(planId, finalPdfData);
 
@@ -238,7 +229,7 @@ const App: React.FC = () => {
         pendingPdf: null
       }));
     } catch (e: any) {
-      alert(`Erro ao sincronizar: ${e.message}`);
+      alert(`Erro: ${e.message}`);
     } finally {
       setIsCloudSyncing(false);
     }
@@ -282,11 +273,14 @@ const App: React.FC = () => {
       <main className="flex-grow container mx-auto px-4 py-8 max-w-6xl">
         {state.currentView === 'auth' && !state.currentUser && <Auth onLogin={handleUserData} />}
         
+        {state.currentView === 'admin' && state.currentUser?.email === ADMIN_EMAIL && <AdminPanel />}
+
         {state.currentView === 'library' && state.currentUser && (
           <Library 
             plans={state.currentUser.plans} 
             onSelectPlan={(id) => setState(prev => ({ ...prev, activePlanId: id, currentView: 'dashboard' }))} 
             onUpload={handleFileUpload}
+            userEmail={state.currentUser.email}
             onDeletePlan={async (id) => {
               if (confirm("Excluir plano da nuvem?")) {
                 const plan = state.currentUser?.plans.find(p => p.id === id);
