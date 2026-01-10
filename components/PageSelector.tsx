@@ -24,7 +24,8 @@ const PageSelector: React.FC<PageSelectorProps> = ({ pdfData, fileName, onConfir
   };
 
   const triggerDownload = (bytes: Uint8Array, name: string) => {
-    const blob = new Blob([bytes], { type: 'application/pdf' });
+    // Usando cast para any para evitar erro de ArrayBufferLike vs ArrayBuffer no construtor do Blob
+    const blob = new Blob([bytes as any], { type: 'application/pdf' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

@@ -44,7 +44,8 @@ const Library: React.FC<LibraryProps> = ({ plans, onSelectPlan, onUpload, onDele
         bytes[i] = binaryString.charCodeAt(i);
       }
 
-      const blob = new Blob([bytes], { type: 'application/pdf' });
+      // Usando cast para any para evitar erro de compatibilidade de buffer no TS durante o build
+      const blob = new Blob([bytes as any], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
