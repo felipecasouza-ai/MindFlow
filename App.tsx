@@ -395,7 +395,9 @@ const App: React.FC = () => {
             onCancel={() => setState(prev => ({ ...prev, currentView: 'dashboard', lastSessionTime: 0, quizReviewMode: false, reviewAnswers: [] }))}
           />
         )}
-        {state.currentView === 'stats' && activePlanMetadata && <Stats plan={activePlanMetadata} />}
+        {state.currentView === 'stats' && activePlanMetadata && (
+          <Stats activePlan={activePlanMetadata} allPlans={state.currentUser?.plans || []} />
+        )}
       </main>
       <footer className="py-6 text-center text-slate-500 dark:text-slate-400 text-sm border-t border-slate-200 dark:border-slate-800">© {new Date().getFullYear()} MindFlow - Cloud Storage Powered by Supabase</footer>
     </div>
