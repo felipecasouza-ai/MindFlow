@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../services/supabaseClient';
 
 interface AuthProps {
@@ -10,9 +10,19 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Carregar e-mail lembrado ao iniciar
+  useEffect(() => {
+    const savedEmail = localStorage.getItem('mindflow_remembered_email');
+    if (savedEmail) {
+      setEmail(savedEmail);
+      setRememberMe(true);
+    }
+  }, []);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,7 +37,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
         });
         if (signUpError) throw signUpError;
         if (data.user) {
-          onLogin(data.user.id, data.user.email || email);
+          processLoginSuccess(data.user.id, data.user.email || email);
         }
       } else {
         const { data, error: signInError } = await supabase.auth.signInWithPassword({
@@ -36,7 +46,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
         });
         if (signInError) throw signInError;
         if (data.user) {
-          onLogin(data.user.id, data.user.email || email);
+          processLoginSuccess(data.user.id, data.user.email || email);
         }
       }
     } catch (err: any) {
@@ -44,6 +54,15 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const processLoginSuccess = (userId: string, userEmail: string) => {
+    if (rememberMe) {
+      localStorage.setItem('mindflow_remembered_email', userEmail);
+    } else {
+      localStorage.removeItem('mindflow_remembered_email');
+    }
+    onLogin(userId, userEmail);
   };
 
   return (
@@ -101,6 +120,27 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
               </button>
             </div>
           </div>
+
+          <div className="flex items-center gap-2 mb-4 ml-1">
+            <button 
+              type="button"
+              onClick={() => setRememberMe(!rememberMe)}
+              className={`w-6 h-6 rounded-lg border-2 transition-all flex items-center justify-center ${
+                rememberMe 
+                ? 'bg-indigo-600 border-indigo-600 text-white' 
+                : 'bg-transparent border-slate-200 dark:border-slate-800'
+              }`}
+            >
+              {rememberMe && <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+            </button>
+            <span 
+              className="text-sm font-medium text-slate-600 dark:text-slate-400 cursor-pointer select-none"
+              onClick={() => setRememberMe(!rememberMe)}
+            >
+              Lembrar e-mail neste dispositivo
+            </span>
+          </div>
+
           <button 
             type="submit"
             disabled={loading}
