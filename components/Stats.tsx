@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { ReadingPlan, ReadingDay } from '../types';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LineChart, Line, Legend, PieChart, Pie } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LineChart, Line, Legend, PieChart, Pie, ReferenceLine, Label } from 'recharts';
 
 interface StatsProps {
   activePlan: ReadingPlan;
@@ -31,10 +31,14 @@ const Stats: React.FC<StatsProps> = ({ activePlan, allPlans }) => {
   const activeTotalPages = activeCompletedDays.reduce((acc, d) => acc + (d.endPage - d.startPage + 1), 0);
   const activeTimePerPage = activeTotalPages > 0 ? activeTotalTime / activeTotalPages : 0;
   
+  // New: Average time per day
+  const activeAvgTimePerDay = activeCompletedDays.length > 0 ? activeTotalTime / activeCompletedDays.length : 0;
+  const activeAvgMinutesPerDay = activeAvgTimePerDay / 60;
+
   const activeChartData = activePlan.days.map(d => ({
     name: `Dia ${d.dayNumber}`,
     score: d.quizScore || 0,
-    tempo: Math.round((d.timeSpentSeconds || 0) / 60 * 10) / 10,
+    tempo: d.isCompleted ? Math.round((d.timeSpentSeconds || 0) / 60 * 10) / 10 : null,
     status: d.isCompleted ? 'Concluído' : 'Pendente'
   })).slice(0, Math.max(activePlan.currentDayIndex + 5, 10));
 
@@ -120,9 +124,10 @@ const Stats: React.FC<StatsProps> = ({ activePlan, allPlans }) => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
             <StatBox title="Quiz Score" value={activeAvgScore} sub="/ 5.0" color="emerald" />
-            <StatBox title="Tempo de Leitura" value={formatSeconds(activeTotalTime)} color="indigo" />
+            <StatBox title="Tempo Total" value={formatSeconds(activeTotalTime)} color="indigo" />
+            <StatBox title="Média Tempo/Dia" value={formatSeconds(activeAvgTimePerDay)} color="indigo" />
             <StatBox title="Metas Batidas" value={activeCompletedDays.length} sub={`/ ${activePlan.days.length}`} color="amber" />
             <StatBox title="Média Pág/Dia" value={activeCompletedDays.length > 0 ? Math.round(activeTotalPages / activeCompletedDays.length) : "--"} color="teal" />
           </div>
@@ -151,7 +156,12 @@ const Stats: React.FC<StatsProps> = ({ activePlan, allPlans }) => {
                     <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                     <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', fontSize: '12px' }} />
-                    <Line type="monotone" dataKey="tempo" stroke="#6366f1" strokeWidth={3} dot={{ r: 4, fill: '#6366f1' }} activeDot={{ r: 6 }} />
+                    <Line type="monotone" dataKey="tempo" stroke="#6366f1" strokeWidth={3} dot={{ r: 4, fill: '#6366f1' }} activeDot={{ r: 6 }} connectNulls />
+                    {activeAvgMinutesPerDay > 0 && (
+                      <ReferenceLine y={Math.round(activeAvgMinutesPerDay * 10) / 10} stroke="#f43f5e" strokeDasharray="3 3" strokeWidth={2}>
+                        <Label value={`Média: ${Math.round(activeAvgMinutesPerDay * 10) / 10}m`} position="insideTopRight" fill="#f43f5e" fontSize={10} fontWeight="bold" />
+                      </ReferenceLine>
+                    )}
                   </LineChart>
                </ResponsiveContainer>
             </ChartCard>
@@ -282,9 +292,9 @@ const StatBox = ({ title, value, sub, color }: any) => {
 
   return (
     <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-sm border border-slate-100 dark:border-slate-800">
-      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">{title}</p>
+      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 truncate">{title}</p>
       <div className="flex items-baseline gap-1">
-        <span className={`text-3xl font-black ${colorMap[color].split(' ')[0]}`}>{value}</span>
+        <span className={`text-2xl font-black ${colorMap[color] ? colorMap[color].split(' ')[0] : 'text-slate-600'}`}>{value}</span>
         {sub && <span className="text-slate-400 font-bold text-sm">{sub}</span>}
       </div>
     </div>
