@@ -8,6 +8,7 @@ interface DashboardProps {
   onReviewQuiz: (dayIdx: number) => void;
   onUpdateTitle: (newTitle: string) => void;
   onJumpToDay: (dayIdx: number) => void;
+  onSyncPlan: (planId: string) => Promise<void>;
   backgroundStatus?: { current: number, total: number };
 }
 
@@ -17,9 +18,11 @@ const Dashboard: React.FC<DashboardProps> = ({
   onReviewQuiz, 
   onUpdateTitle, 
   onJumpToDay,
+  onSyncPlan,
   backgroundStatus
 }) => {
   const [isEditing, setIsEditing] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [tempTitle, setTempTitle] = useState(plan.fileName);
 
   const currentDay = plan.days[plan.currentDayIndex];
@@ -30,6 +33,12 @@ const Dashboard: React.FC<DashboardProps> = ({
       onUpdateTitle(tempTitle.trim());
       setIsEditing(false);
     }
+  };
+
+  const handleSync = async () => {
+    setIsSyncing(true);
+    await onSyncPlan(plan.id);
+    setTimeout(() => setIsSyncing(false), 1000);
   };
 
   return (
@@ -72,13 +81,34 @@ const Dashboard: React.FC<DashboardProps> = ({
           </div>
         </div>
         
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+           <button 
+            onClick={handleSync}
+            disabled={isSyncing}
+            className={`flex items-center gap-2 px-4 py-2 rounded-2xl font-bold text-xs transition-all border ${
+              isSyncing 
+              ? 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-100 dark:border-slate-700' 
+              : 'bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 border-indigo-100 dark:border-indigo-900/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/60'
+            }`}
+           >
+             <svg 
+              xmlns="http://www.w3.org/2000/svg" 
+              width="16" height="16" 
+              viewBox="0 0 24 24" fill="none" stroke="currentColor" 
+              strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+              className={isSyncing ? 'animate-spin' : ''}
+             >
+               <path d="M17.5 19a3.5 3.5 0 1 1-5.8-3.2l.3-.3M12 13h.01"/><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+             </svg>
+             {isSyncing ? 'Sincronizando...' : 'Sincronizar Progresso'}
+           </button>
+
            {backgroundStatus && (
-             <div className="bg-indigo-50 dark:bg-indigo-950/40 px-4 py-2 rounded-2xl flex items-center gap-3 border border-indigo-100 dark:border-indigo-900/30">
-               <div className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse"></div>
+             <div className="bg-emerald-50 dark:bg-emerald-950/40 px-4 py-2 rounded-2xl flex items-center gap-3 border border-emerald-100 dark:border-emerald-900/30">
+               <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
                <div className="flex flex-col">
-                  <span className="text-[10px] font-black uppercase text-indigo-400 tracking-widest">Inteligência Artificial</span>
-                  <span className="text-xs font-bold text-indigo-700 dark:text-indigo-300">Preparando Quizzes: {backgroundStatus.current}/{backgroundStatus.total}</span>
+                  <span className="text-[10px] font-black uppercase text-emerald-500 tracking-widest">IA Worker</span>
+                  <span className="text-xs font-bold text-emerald-700 dark:text-emerald-300">Quizzes: {backgroundStatus.current}/{backgroundStatus.total}</span>
                </div>
              </div>
            )}

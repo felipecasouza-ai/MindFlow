@@ -149,6 +149,70 @@ const App: React.FC = () => {
     } catch (e) { setDbError("Falha na conexão."); }
   };
 
+  const handleSyncPlan = async (planId: string) => {
+    if (!state.currentUser) return;
+    setIsCloudSyncing(true);
+    
+    try {
+      // 1. Buscar dados remotos
+      const { data: remotePlan, error } = await supabase
+        .from('reading_plans')
+        .select('*')
+        .eq('id', planId)
+        .single();
+        
+      if (error) throw error;
+      
+      const localPlan = state.currentUser.plans.find(p => p.id === planId);
+      if (!localPlan) return;
+
+      // 2. Lógica de Mesclagem Inteligente (Merge Strategy)
+      // Mesclamos o array de dias priorizando qualquer marcação de "isCompleted: true"
+      const mergedDays = localPlan.days.map((localDay, idx) => {
+        const remoteDay = remotePlan.days[idx];
+        if (!remoteDay) return localDay;
+
+        // Se local ou remoto estiverem completos, o final está completo
+        const isCompleted = localDay.isCompleted || remoteDay.isCompleted;
+        
+        // Se houver conflito de quiz ou score, preferimos o que tem o dado
+        return {
+          ...localDay,
+          isCompleted,
+          quizScore: localDay.quizScore ?? remoteDay.quizScore,
+          timeSpentSeconds: Math.max(localDay.timeSpentSeconds || 0, remoteDay.timeSpentSeconds || 0),
+          quiz: localDay.quiz || remoteDay.quiz,
+          userAnswers: localDay.userAnswers || remoteDay.userAnswers
+        };
+      });
+
+      // 3. Determinar o índice do dia atual (o maior entre os dois)
+      const currentDayIndex = Math.max(localPlan.currentDayIndex, remotePlan.current_day_index);
+
+      // 4. Preparar objeto atualizado
+      const updatedPlan: ReadingPlan = {
+        ...localPlan,
+        days: mergedDays,
+        currentDayIndex,
+        lastAccessed: Date.now()
+      };
+
+      // 5. Salvar de volta no Supabase e no Estado
+      await syncPlanToSupabase(updatedPlan);
+      
+      setState(prev => {
+        if (!prev.currentUser) return prev;
+        const updatedPlans = prev.currentUser.plans.map(p => p.id === planId ? updatedPlan : p);
+        return { ...prev, currentUser: { ...prev.currentUser, plans: updatedPlans } };
+      });
+
+    } catch (e: any) {
+      alert(`Erro na sincronização: ${e.message}`);
+    } finally {
+      setIsCloudSyncing(false);
+    }
+  };
+
   const activePlanMetadata = state.currentUser?.plans.find(p => p.id === state.activePlanId) || null;
   const activePlan: ReadingPlan | null = activePlanMetadata && activePlanPdf 
     ? { ...activePlanMetadata, pdfData: activePlanPdf } 
@@ -349,6 +413,7 @@ const App: React.FC = () => {
             plan={activePlanMetadata} 
             onStartReading={() => setState(prev => ({ ...prev, currentView: 'reader' }))}
             onJumpToDay={jumpToDay}
+            onSyncPlan={handleSyncPlan}
             backgroundStatus={backgroundGenStatus[activePlanMetadata.id]}
             onReviewQuiz={(dayIdx) => {
               const day = activePlanMetadata.days[dayIdx];

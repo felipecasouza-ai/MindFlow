@@ -28,9 +28,13 @@ const Stats: React.FC<StatsProps> = ({ activePlan, allPlans }) => {
     ? (activeCompletedDays.reduce((acc, d) => acc + (d.quizScore || 0), 0) / activeCompletedDays.length).toFixed(1)
     : "0.0";
   const activeTotalTime = activeCompletedDays.reduce((acc, d) => acc + (d.timeSpentSeconds || 0), 0);
-  const activeTotalPages = activeCompletedDays.reduce((acc, d) => acc + (d.endPage - d.startPage + 1), 0);
-  const activeTimePerPage = activeTotalPages > 0 ? activeTotalTime / activeTotalPages : 0;
+  const activeTotalPagesRead = activeCompletedDays.reduce((acc, d) => acc + (d.endPage - d.startPage + 1), 0);
+  const activeTimePerPage = activeTotalPagesRead > 0 ? activeTotalTime / activeTotalPagesRead : 0;
   
+  // Estimation for completion
+  const activeRemainingPages = Math.max(0, activePlan.totalPages - activeTotalPagesRead);
+  const activeEstimatedTimeRemaining = activeRemainingPages * activeTimePerPage;
+
   const activeAvgTimePerDay = activeCompletedDays.length > 0 ? activeTotalTime / activeCompletedDays.length : 0;
   const activeAvgMinutesPerDay = activeAvgTimePerDay / 60;
 
@@ -136,18 +140,19 @@ const Stats: React.FC<StatsProps> = ({ activePlan, allPlans }) => {
                 </div>
                 <div className="bg-white/10 backdrop-blur-md rounded-2xl p-4 border border-white/20 text-center">
                   <p className="text-[10px] font-black uppercase tracking-widest opacity-70 mb-1">Total Lido</p>
-                  <p className="text-2xl font-black">{activeTotalPages} <span className="text-xs opacity-50">pág</span></p>
+                  <p className="text-2xl font-black">{activeTotalPagesRead} <span className="text-xs opacity-50">pág</span></p>
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             <StatBox title="Quiz Score" value={activeAvgScore} sub="/ 5.0" color="emerald" />
             <StatBox title="Tempo Total" value={formatSeconds(activeTotalTime)} color="indigo" />
             <StatBox title="Média Tempo/Dia" value={formatSeconds(activeAvgTimePerDay)} color="indigo" />
+            <StatBox title="Término Estimado" value={formatSeconds(activeEstimatedTimeRemaining)} color="rose" />
             <StatBox title="Metas Batidas" value={activeCompletedDays.length} sub={`/ ${activePlan.days.length}`} color="amber" />
-            <StatBox title="Média Pág/Dia" value={activeCompletedDays.length > 0 ? Math.round(activeTotalPages / activeCompletedDays.length) : "--"} color="teal" />
+            <StatBox title="Média Pág/Dia" value={activeCompletedDays.length > 0 ? Math.round(activeTotalPagesRead / activeCompletedDays.length) : "--"} color="teal" />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -316,14 +321,15 @@ const StatBox = ({ title, value, sub, color }: any) => {
     indigo: "text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/30",
     emerald: "text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30",
     amber: "text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30",
-    teal: "text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-950/30"
+    teal: "text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-950/30",
+    rose: "text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/30"
   };
 
   return (
     <div className="bg-white dark:bg-slate-900 rounded-[2rem] p-6 shadow-sm border border-slate-100 dark:border-slate-800 transition-all hover:shadow-md">
       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 truncate">{title}</p>
       <div className="flex items-baseline gap-1">
-        <span className={`text-2xl font-black ${colorMap[color] ? colorMap[color].split(' ')[0] : 'text-slate-600'}`}>{value}</span>
+        <span className={`text-xl font-black ${colorMap[color] ? colorMap[color].split(' ')[0] : 'text-slate-600'}`}>{value}</span>
         {sub && <span className="text-slate-400 font-bold text-sm">{sub}</span>}
       </div>
     </div>
