@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { ReadingPlan, ReadingDay } from '../types';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LineChart, Line, Legend, PieChart, Pie, ReferenceLine, Label, Text } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LineChart, Line, Legend, PieChart, Pie, ReferenceLine, Label, LabelList } from 'recharts';
 
 interface StatsProps {
   activePlan: ReadingPlan;
@@ -59,17 +59,19 @@ const Stats: React.FC<StatsProps> = ({ activePlan, allPlans }) => {
   const libraryComparisonData = allPlans.map(p => {
     const done = p.days.filter(d => d.isCompleted).length;
     const total = p.days.length;
+    const prog = total > 0 ? Math.round((done / total) * 100) : 0;
     return {
       name: p.fileName.length > 12 ? p.fileName.substring(0, 12) + '...' : p.fileName,
       fullName: p.fileName,
-      progresso: Math.round((done / total) * 100),
-      label: `${Math.round((done / total) * 100)}%`
+      progresso: prog,
+      label: `${prog}%`
     };
   }).sort((a, b) => b.progresso - a.progresso);
 
   // Chart data for Time Distribution by Book
   const timeDistData = allPlans.map(p => ({
     name: p.fileName.length > 15 ? p.fileName.substring(0, 15) + '...' : p.fileName,
+    fullName: p.fileName,
     value: Math.round(p.days.reduce((acc, d) => acc + (d.timeSpentSeconds || 0), 0) / 60)
   })).filter(d => d.value > 0);
 
@@ -81,7 +83,7 @@ const Stats: React.FC<StatsProps> = ({ activePlan, allPlans }) => {
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 rounded-xl shadow-xl">
           <p className="text-xs font-bold text-slate-800 dark:text-slate-100 mb-1">{payload[0].payload.fullName || label}</p>
           <p className="text-xs text-indigo-600 dark:text-indigo-400 font-black">
-            {payload[0].name}: {payload[0].value}{payload[0].unit || payload[0].dataKey === 'progresso' ? '%' : 'min'}
+            {payload[0].name}: {payload[0].value}{payload[0].unit || (payload[0].dataKey === 'progresso' ? '%' : ' min')}
           </p>
         </div>
       );
@@ -123,7 +125,7 @@ const Stats: React.FC<StatsProps> = ({ activePlan, allPlans }) => {
               <div className="flex-grow">
                 <h3 className="text-xl font-bold mb-1 font-heading">Foco: {activePlan.fileName}</h3>
                 <p className="opacity-80 text-sm leading-relaxed max-w-md">
-                  Seu progresso atual é de <span className="font-bold">{Math.round((activeCompletedDays.length / activePlan.days.length) * 100)}%</span>. 
+                  Seu progresso atual é de <span className="font-bold">{activePlan.days.length > 0 ? Math.round((activeCompletedDays.length / activePlan.days.length) * 100) : 0}%</span>. 
                   Baseado no seu ritmo de <span className="font-bold">{formatSeconds(activeTimePerPage)} por página</span>.
                 </p>
               </div>
@@ -210,7 +212,7 @@ const Stats: React.FC<StatsProps> = ({ activePlan, allPlans }) => {
                         {libraryComparisonData.map((entry, index) => (
                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} fillOpacity={0.85} />
                         ))}
-                        <Label dataKey="label" position="right" fill="#64748b" fontSize={11} fontWeight="bold" offset={10} />
+                        <LabelList dataKey="label" position="right" fill="#64748b" fontSize={11} fontWeight="bold" offset={10} />
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
@@ -274,6 +276,7 @@ const Stats: React.FC<StatsProps> = ({ activePlan, allPlans }) => {
                          const pScores = p.days.filter(d => d.quizScore !== undefined).map(d => d.quizScore!);
                          const pAvg = pScores.length > 0 ? (pScores.reduce((a, b) => a + b, 0) / pScores.length).toFixed(1) : "--";
                          const isDone = done === total && total > 0;
+                         const progressRatio = total > 0 ? Math.round((done / total) * 100) : 0;
                          
                          return (
                             <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
@@ -284,7 +287,7 @@ const Stats: React.FC<StatsProps> = ({ activePlan, allPlans }) => {
                                <td className="px-8 py-6">
                                   <div className="flex items-center gap-3">
                                       <div className="w-24 h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden shrink-0">
-                                          <div className={`h-full transition-all duration-1000 ${isDone ? 'bg-emerald-500' : 'bg-indigo-500'}`} style={{ width: `${Math.round((done / total) * 100)}%` }} />
+                                          <div className={`h-full transition-all duration-1000 ${isDone ? 'bg-emerald-500' : 'bg-indigo-500'}`} style={{ width: `${progressRatio}%` }} />
                                       </div>
                                       <span className="text-[10px] font-black text-slate-500">{done}/{total}</span>
                                   </div>
