@@ -140,86 +140,97 @@ const App: React.FC = () => {
   };
 
   const processQuizzesInBackground = async (planId: string, pdfData: string, days: ReadingDay[], bookTitle: string) => {
-    setBackgroundGenStatus(prev => ({ ...prev, [planId]: { current: 0, total: days.length } }));
+    if (backgroundGenStatus[planId]) return;
     
-    const pdfjs = (window as any)['pdfjs-dist/build/pdf'];
-    const binaryString = atob(pdfData.split(',')[1]);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+    setBackgroundGenStatus(prev => ({ ...prev, [planId]: { current: days.filter(d => !!d.quiz?.length).length, total: days.length } }));
     
-    const loadingTask = pdfjs.getDocument({ 
-      data: bytes,
-      cMapUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDF_JS_VERSION}/cmaps/`,
-      cMapPacked: true,
-    });
-    
-    const pdfDoc = await loadingTask.promise;
-
-    for (let i = 0; i < days.length; i++) {
-      try {
-        let dayText = "";
-        for (let pNum = days[i].startPage; pNum <= days[i].endPage; pNum++) {
-          const page = await pdfDoc.getPage(pNum);
-          const content = await page.getTextContent();
-          
-          // Extração robusta igual ao Reader
-          const strings = content.items
-            .map((item: any) => item.str || "")
-            .filter((s: string) => s.trim().length > 0);
-            
-          dayText += strings.join(" ") + "\n\n";
-        }
-
-        const trimmedText = dayText.trim();
-        console.log(`[Worker] Dia ${i+1}: ${trimmedText.length} caracteres extraídos.`);
-
-        if (trimmedText.length < 50) {
-          console.warn(`[Worker] Texto insuficiente para o dia ${i+1}. Tentando extração alternativa...`);
-          // Tentar sem filtros agressivos
-          const rawContent = await Promise.all(
-            Array.from({ length: days[i].endPage - days[i].startPage + 1 }, (_, idx) => 
-              pdfDoc.getPage(days[i].startPage + idx).then((p: any) => p.getTextContent())
-            )
-          );
-          const altText = rawContent.map((c: any) => c.items.map((it: any) => it.str).join(" ")).join("\n");
-          if (altText.trim().length < 50) continue;
-        }
-
-        const quiz = await generateQuiz(trimmedText, bookTitle);
-
-        const { data: latestPlan } = await supabase.from('reading_plans').select('days').eq('id', planId).single();
-        if (latestPlan) {
-          const serverDays = [...latestPlan.days];
-          serverDays[i].quiz = quiz;
-          await supabase.from('reading_plans').update({ days: serverDays }).eq('id', planId);
-          setState(prev => {
-            if (!prev.currentUser) return prev;
-            const updatedPlans = prev.currentUser.plans.map(p => {
-              if (p.id === planId) {
-                const localDays = [...p.days];
-                localDays[i].quiz = quiz;
-                return { ...p, days: localDays };
-              }
-              return p;
-            });
-            return { ...prev, currentUser: { ...prev.currentUser, plans: updatedPlans } };
-          });
-        }
-        setBackgroundGenStatus(prev => ({ ...prev, [planId]: { current: i + 1, total: days.length } }));
-        
-        // Pequena pausa para não sobrecarregar a API
-        await new Promise(r => setTimeout(r, 1000));
-
-      } catch (err) { console.error(`Erro no quiz do dia ${i+1}:`, err); }
-    }
-    setTimeout(() => {
-      setBackgroundGenStatus(prev => {
-        const next = { ...prev };
-        delete next[planId];
-        return next;
+    try {
+      const pdfjs = (window as any)['pdfjs-dist/build/pdf'];
+      const binaryString = atob(pdfData.split(',')[1]);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+      
+      const loadingTask = pdfjs.getDocument({ 
+        data: bytes,
+        cMapUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDF_JS_VERSION}/cmaps/`,
+        cMapPacked: true,
       });
-    }, 5000);
+      
+      const pdfDoc = await loadingTask.promise;
+
+      for (let i = 0; i < days.length; i++) {
+        if (days[i].quiz && days[i].quiz!.length > 0) continue;
+
+        try {
+          let dayText = "";
+          for (let pNum = days[i].startPage; pNum <= days[i].endPage; pNum++) {
+            const page = await pdfDoc.getPage(pNum);
+            const content = await page.getTextContent();
+            const strings = content.items
+              .map((item: any) => item.str || "")
+              .filter((s: string) => s.trim().length > 0);
+            dayText += strings.join(" ") + "\n\n";
+          }
+
+          const trimmedText = dayText.trim();
+          if (trimmedText.length < 50) continue;
+
+          const quiz = await generateQuiz(trimmedText, bookTitle);
+
+          const { data: latestPlan } = await supabase.from('reading_plans').select('days').eq('id', planId).single();
+          if (latestPlan) {
+            const serverDays = [...latestPlan.days];
+            serverDays[i].quiz = quiz;
+            await supabase.from('reading_plans').update({ days: serverDays }).eq('id', planId);
+            
+            setState(prev => {
+              if (!prev.currentUser) return prev;
+              const updatedPlans = prev.currentUser.plans.map(p => {
+                if (p.id === planId) {
+                  const localDays = [...p.days];
+                  localDays[i].quiz = quiz;
+                  return { ...p, days: localDays };
+                }
+                return p;
+              });
+              return { ...prev, currentUser: { ...prev.currentUser, plans: updatedPlans } };
+            });
+          }
+          
+          const readyCount = days.filter((d, idx) => idx < i || !!d.quiz?.length).length + 1;
+          setBackgroundGenStatus(prev => ({ ...prev, [planId]: { current: readyCount, total: days.length } }));
+          await new Promise(r => setTimeout(r, 1500)); 
+
+        } catch (err) { 
+          console.error(`Erro no quiz do dia ${i+1}:`, err); 
+        }
+      }
+    } catch (err) {
+      console.error("Erro ao carregar PDF no worker:", err);
+    } finally {
+      setTimeout(() => {
+        setBackgroundGenStatus(prev => {
+          const next = { ...prev };
+          delete next[planId];
+          return next;
+        });
+      }, 5000);
+    }
   };
+
+  const activePlanMetadata = state.currentUser?.plans.find(p => p.id === state.activePlanId) || null;
+  const activePlan: ReadingPlan | null = activePlanMetadata && activePlanPdf 
+    ? { ...activePlanMetadata, pdfData: activePlanPdf } 
+    : null;
+
+  useEffect(() => {
+    if (activePlan && !backgroundGenStatus[activePlan.id]) {
+      const needsQuizzes = activePlan.days.some(d => !d.quiz || d.quiz.length === 0);
+      if (needsQuizzes) {
+        processQuizzesInBackground(activePlan.id, activePlan.pdfData, activePlan.days, activePlan.fileName);
+      }
+    }
+  }, [activePlan?.id, !!activePlan?.pdfData]);
 
   const handleFileUpload = async (file: File) => {
     const reader = new FileReader();
@@ -269,7 +280,6 @@ const App: React.FC = () => {
       await savePDF(planId, finalPdfData);
       const newPlan: ReadingPlan = { ...newPlanData, fileName: newPlanData.file_name, originalFileName: newPlanData.original_file_name, totalPages: newPlanData.total_pages, currentDayIndex: newPlanData.current_day_index, lastAccessed: timestamp, storagePath: storagePath, pdfData: "" };
       setState(prev => ({ ...prev, currentUser: prev.currentUser ? { ...prev.currentUser, plans: [newPlan, ...prev.currentUser.plans] } : null, activePlanId: newPlan.id, currentView: 'dashboard', pendingPdf: null }));
-      processQuizzesInBackground(planId, finalPdfData, calculatedDays, bookTitle);
     } catch (e: any) { alert(`Erro: ${e.message}`); }
     finally { setIsCloudSyncing(true); setTimeout(() => setIsCloudSyncing(false), 2000); }
   };
@@ -278,11 +288,6 @@ const App: React.FC = () => {
     if (!state.currentUser) return;
     await supabase.from('reading_plans').update({ file_name: plan.fileName, current_day_index: plan.currentDayIndex, days: plan.days, last_accessed: Date.now() }).eq('id', plan.id);
   };
-
-  const activePlanMetadata = state.currentUser?.plans.find(p => p.id === state.activePlanId) || null;
-  const activePlan: ReadingPlan | null = activePlanMetadata && activePlanPdf 
-    ? { ...activePlanMetadata, pdfData: activePlanPdf } 
-    : null;
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
@@ -299,12 +304,53 @@ const App: React.FC = () => {
             onUpload={handleFileUpload} 
             userEmail={state.currentUser.email} 
             onDeletePlan={async (id) => {
-              if (confirm("Excluir plano?")) {
+              if (!confirm("Deseja excluir permanentemente este plano de leitura?")) return;
+              
+              console.group(`🗑️ Iniciando processo de exclusão do plano: ${id}`);
+              try {
                 const plan = state.currentUser?.plans.find(p => p.id === id);
-                if (plan?.storagePath) await supabase.storage.from('pdfs').remove([plan.storagePath]);
+                
+                // 1. Storage
+                if (plan?.storagePath) {
+                  console.log("Fase 1: Removendo arquivo do Cloud Storage...");
+                  const { error: storageError } = await supabase.storage.from('pdfs').remove([plan.storagePath]);
+                  if (storageError) {
+                    console.warn("Aviso no Storage (Pode ser que o arquivo já não existisse):", storageError.message);
+                  } else {
+                    console.log("Fase 1 completa: Arquivo removido do Storage.");
+                  }
+                } else {
+                  console.log("Fase 1 ignorada: Plano sem caminho de storage.");
+                }
+
+                // 2. IndexedDB
+                console.log("Fase 2: Limpando IndexedDB (Cache local)...");
                 await deletePDF(id);
-                await supabase.from('reading_plans').delete().eq('id', id);
-                setState(prev => ({ ...prev, currentUser: prev.currentUser ? { ...prev.currentUser, plans: prev.currentUser.plans.filter(p => p.id !== id) } : null, activePlanId: prev.activePlanId === id ? null : prev.activePlanId }));
+                console.log("Fase 2 completa: Cache local removido.");
+
+                // 3. Database (Remote)
+                console.log("Fase 3: Removendo registro do Supabase...");
+                const { error: dbDeleteError } = await supabase.from('reading_plans').delete().eq('id', id);
+                if (dbDeleteError) {
+                  throw dbDeleteError;
+                }
+                console.log("Fase 3 completa: Registro removido do banco de dados.");
+
+                // 4. Update UI
+                setState(prev => ({ 
+                  ...prev, 
+                  currentUser: prev.currentUser ? { ...prev.currentUser, plans: prev.currentUser.plans.filter(p => p.id !== id) } : null, 
+                  activePlanId: prev.activePlanId === id ? null : prev.activePlanId 
+                }));
+                
+                console.log("✨ Sucesso: O plano foi removido de todas as instâncias.");
+                console.groupEnd();
+                alert("Plano excluído com sucesso.");
+
+              } catch (err: any) {
+                console.error("❌ ERRO FATAL NA EXCLUSÃO:", err.message);
+                console.groupEnd();
+                alert(`Erro ao excluir plano: ${err.message}`);
               }
             }}
             onUpdateTitle={(id, title) => {
@@ -356,7 +402,6 @@ const App: React.FC = () => {
               } else {
                 setState(prev => ({ ...prev, isGeneratingQuiz: true, quizReviewMode: false, currentView: 'quiz', lastSessionTime: timeSpent }));
                 try {
-                  console.log(`[Reader] Enviando ${text.length} caracteres para gerar quiz.`);
                   const quiz = await generateQuiz(text, activePlan.fileName);
                   setState(prev => ({ ...prev, currentQuiz: quiz, isGeneratingQuiz: false }));
                 } catch (e) { alert("Erro no quiz. Tente novamente."); setState(prev => ({ ...prev, isGeneratingQuiz: false, currentView: 'dashboard' })); }
