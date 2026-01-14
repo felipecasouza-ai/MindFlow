@@ -59,21 +59,44 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const checkUser = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        handleUserData(session.user.id, session.user.email || '');
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error("Erro ao recuperar sessão:", error.message);
+          // Se o token for inválido, forçamos o logout para limpar o estado local
+          if (error.message.includes('refresh_token_not_found') || error.message.includes('invalid_grant')) {
+            await supabase.auth.signOut();
+            setState(prev => ({ ...prev, currentUser: null, currentView: 'auth' }));
+          }
+          return;
+        }
+
+        if (session?.user) {
+          handleUserData(session.user.id, session.user.email || '');
+        } else {
+          setState(prev => ({ ...prev, currentView: 'auth' }));
+        }
+      } catch (e) {
+        console.error("Falha crítica na inicialização do Auth:", e);
       }
     };
+
     checkUser();
 
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' && session?.user) {
         handleUserData(session.user.id, session.user.email || '');
-      } else if (event === 'SIGNED_OUT') {
-        setState(prev => ({ ...prev, currentUser: null, currentView: 'auth', activePlanId: null }));
-        setDbError(null);
+      } else if (event === 'SIGNED_OUT' || event === 'USER_UPDATED') {
+        if (!session) {
+          setState(prev => ({ ...prev, currentUser: null, currentView: 'auth', activePlanId: null }));
+          setDbError(null);
+        }
+      } else if (event === 'TOKEN_REFRESHED') {
+        console.log("Token de acesso renovado com sucesso.");
       }
     });
+
     return () => authListener.subscription.unsubscribe();
   }, []);
 
@@ -144,7 +167,7 @@ const App: React.FC = () => {
       setState(prev => ({ 
         ...prev, 
         currentUser: { id: userId, email, plans }, 
-        currentView: email === ADMIN_EMAIL ? 'admin' : 'library' 
+        currentView: prev.currentView === 'auth' ? (email === ADMIN_EMAIL ? 'admin' : 'library') : prev.currentView
       }));
     } catch (e) { setDbError("Falha na conexão."); }
   };
@@ -154,7 +177,6 @@ const App: React.FC = () => {
     setIsCloudSyncing(true);
     
     try {
-      // 1. Buscar dados remotos
       const { data: remotePlan, error } = await supabase
         .from('reading_plans')
         .select('*')
@@ -166,16 +188,10 @@ const App: React.FC = () => {
       const localPlan = state.currentUser.plans.find(p => p.id === planId);
       if (!localPlan) return;
 
-      // 2. Lógica de Mesclagem Inteligente (Merge Strategy)
-      // Mesclamos o array de dias priorizando qualquer marcação de "isCompleted: true"
       const mergedDays = localPlan.days.map((localDay, idx) => {
         const remoteDay = remotePlan.days[idx];
         if (!remoteDay) return localDay;
-
-        // Se local ou remoto estiverem completos, o final está completo
         const isCompleted = localDay.isCompleted || remoteDay.isCompleted;
-        
-        // Se houver conflito de quiz ou score, preferimos o que tem o dado
         return {
           ...localDay,
           isCompleted,
@@ -186,10 +202,7 @@ const App: React.FC = () => {
         };
       });
 
-      // 3. Determinar o índice do dia atual (o maior entre os dois)
       const currentDayIndex = Math.max(localPlan.currentDayIndex, remotePlan.current_day_index);
-
-      // 4. Preparar objeto atualizado
       const updatedPlan: ReadingPlan = {
         ...localPlan,
         days: mergedDays,
@@ -197,7 +210,6 @@ const App: React.FC = () => {
         lastAccessed: Date.now()
       };
 
-      // 5. Salvar de volta no Supabase e no Estado
       await syncPlanToSupabase(updatedPlan);
       
       setState(prev => {
@@ -218,10 +230,8 @@ const App: React.FC = () => {
     ? { ...activePlanMetadata, pdfData: activePlanPdf } 
     : null;
 
-  // FUNÇÃO DE GERAÇÃO EM SEGUNDO PLANO
   const processQuizzesInBackground = async (planId: string, pdfData: string, days: ReadingDay[], bookTitle: string) => {
     if (backgroundGenStatus[planId]) return;
-    
     setBackgroundGenStatus(prev => ({ ...prev, [planId]: { current: days.filter(d => !!d.quiz?.length).length, total: days.length } }));
     
     try {
@@ -234,9 +244,7 @@ const App: React.FC = () => {
       const pdfDoc = await loadingTask.promise;
 
       for (let i = 0; i < days.length; i++) {
-        // Pular se já tiver quiz
         if (days[i].quiz && days[i].quiz!.length > 0) continue;
-
         try {
           let dayText = "";
           for (let pNum = days[i].startPage; pNum <= days[i].endPage; pNum++) {
@@ -244,17 +252,12 @@ const App: React.FC = () => {
             const content = await page.getTextContent();
             dayText += content.items.map((item: any) => item.str || "").join(" ") + "\n\n";
           }
-
           const quiz = await generateQuiz(dayText, bookTitle);
-
-          // Atualizar no Banco de Dados
           const { data: latestPlan } = await supabase.from('reading_plans').select('days').eq('id', planId).single();
           if (latestPlan) {
             const serverDays = [...latestPlan.days];
             serverDays[i].quiz = quiz;
             await supabase.from('reading_plans').update({ days: serverDays }).eq('id', planId);
-            
-            // Atualizar estado local
             setState(prev => {
               if (!prev.currentUser) return prev;
               const updatedPlans = prev.currentUser.plans.map(p => {
@@ -268,18 +271,12 @@ const App: React.FC = () => {
               return { ...prev, currentUser: { ...prev.currentUser, plans: updatedPlans } };
             });
           }
-          
           setBackgroundGenStatus(prev => ({ ...prev, [planId]: { ...prev[planId], current: i + 1 } }));
-          // Pequeno delay para evitar rate limit
           await new Promise(r => setTimeout(r, 2000));
-
-        } catch (err) {
-          console.error(`Erro no quiz dia ${i+1}:`, err);
-        }
+        } catch (err) { console.error(`Erro no quiz dia ${i+1}:`, err); }
       }
-    } catch (err) {
-      console.error("Erro no worker de PDF:", err);
-    } finally {
+    } catch (err) { console.error("Erro no worker de PDF:", err); }
+    finally {
       setTimeout(() => setBackgroundGenStatus(prev => {
         const n = {...prev}; delete n[planId]; return n;
       }), 5000);
@@ -443,7 +440,6 @@ const App: React.FC = () => {
             currentDay={activePlan.days[activePlan.currentDayIndex]} 
             onDayComplete={async (text, timeSpent) => {
               if (state.activePlanId !== activePlan.id) return;
-              
               const existingQuiz = activePlan.days[activePlan.currentDayIndex].quiz;
               if (existingQuiz && existingQuiz.length > 0) {
                 setState(prev => ({ ...prev, currentQuiz: existingQuiz, quizReviewMode: false, currentView: 'quiz', lastSessionTime: timeSpent }));
