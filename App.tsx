@@ -17,7 +17,7 @@ import { supabase } from './services/supabaseClient';
 
 const PDF_JS_VERSION = '3.11.174';
 const ADMIN_EMAIL = 'admin@mindflow.com';
-export const APP_VERSION = '1.2.5'; // Versão atualizada do sistema
+export const APP_VERSION = '1.2.6'; // Versão incrementada
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>(() => {
@@ -66,8 +66,7 @@ const App: React.FC = () => {
         if (error) {
           console.error("Erro ao recuperar sessão:", error.message);
           if (error.message.includes('refresh_token_not_found') || error.message.includes('invalid_grant')) {
-            await supabase.auth.signOut();
-            setState(prev => ({ ...prev, currentUser: null, currentView: 'auth' }));
+            handleLogout();
           }
           return;
         }
@@ -87,11 +86,16 @@ const App: React.FC = () => {
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' && session?.user) {
         handleUserData(session.user.id, session.user.email || '');
-      } else if (event === 'SIGNED_OUT' || event === 'USER_UPDATED') {
-        if (!session) {
-          setState(prev => ({ ...prev, currentUser: null, currentView: 'auth', activePlanId: null }));
-          setDbError(null);
-        }
+      } else if (event === 'SIGNED_OUT') {
+        setState(prev => ({ 
+          ...prev, 
+          currentUser: null, 
+          currentView: 'auth', 
+          activePlanId: null,
+          currentQuiz: null,
+          reviewAnswers: []
+        }));
+        setDbError(null);
       }
     });
 
@@ -135,6 +139,27 @@ const App: React.FC = () => {
     loadPdf();
   }, [state.activePlanId, state.currentUser]);
 
+  const handleLogout = async () => {
+    // Reset imediato do estado local para feedback visual instantâneo
+    setState(prev => ({
+      ...prev,
+      currentUser: null,
+      activePlanId: null,
+      currentView: 'auth',
+      currentQuiz: null,
+      reviewAnswers: [],
+      pendingPdf: null
+    }));
+    setActivePlanPdf(null);
+    setDbError(null);
+    
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {
+      console.error("Erro ao deslogar do Supabase:", e);
+    }
+  };
+
   const handleUserData = async (userId: string, email: string) => {
     try {
       setDbError(null);
@@ -159,7 +184,7 @@ const App: React.FC = () => {
         currentDayIndex: item.current_day_index,
         lastAccessed: Number(item.last_accessed) || Date.now(),
         storagePath: item.storage_path,
-        isFinished: !!item.is_finished, // Garantia de booleano vindo do snake_case
+        isFinished: !!item.is_finished,
         pdfData: ""
       }));
 
@@ -178,7 +203,7 @@ const App: React.FC = () => {
       current_day_index: plan.currentDayIndex, 
       days: plan.days, 
       last_accessed: Date.now(),
-      is_finished: plan.isFinished ?? false // Garante persistência explícita
+      is_finished: plan.isFinished ?? false 
     }).eq('id', plan.id);
     
     if (error) {
@@ -252,7 +277,6 @@ const App: React.FC = () => {
 
     const updatedPlan: ReadingPlan = { ...planToUpdate, isFinished: finished };
 
-    // 1. Atualiza estado local primeiro para UI responsiva
     setState(prev => {
       if (!prev.currentUser) return prev;
       return {
@@ -264,7 +288,6 @@ const App: React.FC = () => {
       };
     });
 
-    // 2. Sincroniza com a nuvem imediatamente
     setIsCloudSyncing(true);
     try {
       await syncPlanToSupabase(updatedPlan);
@@ -430,7 +453,7 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
-      <Header onViewChange={(v) => setState(prev => ({ ...prev, currentView: v as any }))} user={state.currentUser} onLogout={async () => await supabase.auth.signOut()} activePlan={activePlanMetadata} theme={state.theme} onThemeChange={(t) => setState(prev => ({ ...prev, theme: t }))} />
+      <Header onViewChange={(v) => setState(prev => ({ ...prev, currentView: v as any }))} user={state.currentUser} onLogout={handleLogout} activePlan={activePlanMetadata} theme={state.theme} onThemeChange={(t) => setState(prev => ({ ...prev, theme: t }))} />
       {isCloudSyncing && <div className="bg-indigo-600 text-white text-[10px] font-bold py-1 px-4 text-center animate-pulse uppercase tracking-widest fixed top-0 left-0 right-0 z-[100]">Sincronizando com a nuvem...</div>}
       <main className="flex-grow container mx-auto px-4 py-8 max-w-6xl">
         {state.currentView === 'auth' && !state.currentUser && <Auth onLogin={handleUserData} />}
