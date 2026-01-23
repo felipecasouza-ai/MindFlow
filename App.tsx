@@ -64,7 +64,6 @@ const App: React.FC = () => {
         
         if (error) {
           console.error("Erro ao recuperar sessão:", error.message);
-          // Se o token for inválido, forçamos o logout para limpar o estado local
           if (error.message.includes('refresh_token_not_found') || error.message.includes('invalid_grant')) {
             await supabase.auth.signOut();
             setState(prev => ({ ...prev, currentUser: null, currentView: 'auth' }));
@@ -92,8 +91,6 @@ const App: React.FC = () => {
           setState(prev => ({ ...prev, currentUser: null, currentView: 'auth', activePlanId: null }));
           setDbError(null);
         }
-      } else if (event === 'TOKEN_REFRESHED') {
-        console.log("Token de acesso renovado com sucesso.");
       }
     });
 
@@ -159,8 +156,9 @@ const App: React.FC = () => {
         totalPages: item.total_pages,
         days: item.days,
         currentDayIndex: item.current_day_index,
-        lastAccessed: typeof item.last_accessed === 'number' ? item.last_accessed : Number(item.last_accessed) || Date.now(),
+        lastAccessed: Number(item.last_accessed) || Date.now(),
         storagePath: item.storage_path,
+        isFinished: !!item.is_finished, // Garantia de booleano
         pdfData: ""
       }));
 
@@ -170,6 +168,22 @@ const App: React.FC = () => {
         currentView: prev.currentView === 'auth' ? (email === ADMIN_EMAIL ? 'admin' : 'library') : prev.currentView
       }));
     } catch (e) { setDbError("Falha na conexão."); }
+  };
+
+  const syncPlanToSupabase = async (plan: ReadingPlan) => {
+    if (!state.currentUser) return;
+    const { error } = await supabase.from('reading_plans').update({ 
+      file_name: plan.fileName, 
+      current_day_index: plan.currentDayIndex, 
+      days: plan.days, 
+      last_accessed: Date.now(),
+      is_finished: !!plan.isFinished // Garante que is_finished seja enviado corretamente
+    }).eq('id', plan.id);
+    
+    if (error) {
+      console.error("Erro ao sincronizar com banco:", error.message);
+      throw error;
+    }
   };
 
   const handleSyncPlan = async (planId: string) => {
@@ -191,10 +205,9 @@ const App: React.FC = () => {
       const mergedDays = localPlan.days.map((localDay, idx) => {
         const remoteDay = remotePlan.days[idx];
         if (!remoteDay) return localDay;
-        const isCompleted = localDay.isCompleted || remoteDay.isCompleted;
         return {
           ...localDay,
-          isCompleted,
+          isCompleted: localDay.isCompleted || remoteDay.isCompleted,
           quizScore: localDay.quizScore ?? remoteDay.quizScore,
           timeSpentSeconds: Math.max(localDay.timeSpentSeconds || 0, remoteDay.timeSpentSeconds || 0),
           quiz: localDay.quiz || remoteDay.quiz,
@@ -202,11 +215,11 @@ const App: React.FC = () => {
         };
       });
 
-      const currentDayIndex = Math.max(localPlan.currentDayIndex, remotePlan.current_day_index);
       const updatedPlan: ReadingPlan = {
         ...localPlan,
         days: mergedDays,
-        currentDayIndex,
+        currentDayIndex: Math.max(localPlan.currentDayIndex, remotePlan.current_day_index),
+        isFinished: localPlan.isFinished || !!remotePlan.is_finished,
         lastAccessed: Date.now()
       };
 
@@ -214,12 +227,49 @@ const App: React.FC = () => {
       
       setState(prev => {
         if (!prev.currentUser) return prev;
-        const updatedPlans = prev.currentUser.plans.map(p => p.id === planId ? updatedPlan : p);
-        return { ...prev, currentUser: { ...prev.currentUser, plans: updatedPlans } };
+        return { 
+          ...prev, 
+          currentUser: { 
+            ...prev.currentUser, 
+            plans: prev.currentUser.plans.map(p => p.id === planId ? updatedPlan : p) 
+          } 
+        };
       });
 
     } catch (e: any) {
       alert(`Erro na sincronização: ${e.message}`);
+    } finally {
+      setIsCloudSyncing(false);
+    }
+  };
+
+  const handleToggleFinishPlan = async (planId: string, finished: boolean) => {
+    if (!state.currentUser) return;
+    
+    const planToUpdate = state.currentUser.plans.find(p => p.id === planId);
+    if (!planToUpdate) return;
+
+    const updatedPlan: ReadingPlan = { ...planToUpdate, isFinished: finished };
+
+    // Atualiza estado local primeiro para UI responsiva
+    setState(prev => {
+      if (!prev.currentUser) return prev;
+      return {
+        ...prev,
+        currentUser: {
+          ...prev.currentUser,
+          plans: prev.currentUser.plans.map(p => p.id === planId ? updatedPlan : p)
+        }
+      };
+    });
+
+    // Sincroniza com a nuvem
+    setIsCloudSyncing(true);
+    try {
+      await syncPlanToSupabase(updatedPlan);
+    } catch (e: any) {
+      alert(`Erro ao salvar status: ${e.message}`);
+      // Opcional: Reverter estado em caso de erro crítico
     } finally {
       setIsCloudSyncing(false);
     }
@@ -253,11 +303,13 @@ const App: React.FC = () => {
             dayText += content.items.map((item: any) => item.str || "").join(" ") + "\n\n";
           }
           const quiz = await generateQuiz(dayText, bookTitle);
+          
           const { data: latestPlan } = await supabase.from('reading_plans').select('days').eq('id', planId).single();
           if (latestPlan) {
             const serverDays = [...latestPlan.days];
             serverDays[i].quiz = quiz;
             await supabase.from('reading_plans').update({ days: serverDays }).eq('id', planId);
+            
             setState(prev => {
               if (!prev.currentUser) return prev;
               const updatedPlans = prev.currentUser.plans.map(p => {
@@ -334,19 +386,15 @@ const App: React.FC = () => {
         days: calculatedDays,
         current_day_index: 0,
         last_accessed: timestamp,
-        storage_path: storagePath
+        storage_path: storagePath,
+        is_finished: false
       };
       await supabase.from('reading_plans').insert([newPlanData]);
       await savePDF(planId, finalPdfData);
-      const newPlan: ReadingPlan = { ...newPlanData, fileName: newPlanData.file_name, originalFileName: newPlanData.original_file_name, totalPages: finalPagesCount, currentDayIndex: newPlanData.current_day_index, lastAccessed: timestamp, storagePath: storagePath, pdfData: "" };
+      const newPlan: ReadingPlan = { ...newPlanData, fileName: newPlanData.file_name, originalFileName: newPlanData.original_file_name, totalPages: finalPagesCount, currentDayIndex: newPlanData.current_day_index, lastAccessed: timestamp, storagePath: storagePath, pdfData: "", isFinished: false };
       setState(prev => ({ ...prev, currentUser: prev.currentUser ? { ...prev.currentUser, plans: [newPlan, ...prev.currentUser.plans] } : null, activePlanId: newPlan.id, currentView: 'dashboard', pendingPdf: null }));
     } catch (e: any) { alert(`Erro: ${e.message}`); }
     finally { setIsCloudSyncing(true); setTimeout(() => setIsCloudSyncing(false), 2000); }
-  };
-
-  const syncPlanToSupabase = async (plan: ReadingPlan) => {
-    if (!state.currentUser) return;
-    await supabase.from('reading_plans').update({ file_name: plan.fileName, current_day_index: plan.currentDayIndex, days: plan.days, last_accessed: Date.now() }).eq('id', plan.id);
   };
 
   const deletePlan = async (id: string) => {
@@ -396,11 +444,15 @@ const App: React.FC = () => {
             onDeletePlan={deletePlan}
             onUpdateTitle={(id, title) => {
               if (!state.currentUser) return;
-              const updatedPlans = state.currentUser.plans.map(p => {
-                if (p.id === id) { const updated = { ...p, fileName: title }; syncPlanToSupabase(updated); return updated; }
-                return p;
-              });
-              setState(prev => ({ ...prev, currentUser: prev.currentUser ? { ...prev.currentUser, plans: updatedPlans } : null }));
+              const plan = state.currentUser.plans.find(p => p.id === id);
+              if (plan) {
+                const updated = { ...plan, fileName: title };
+                syncPlanToSupabase(updated);
+                setState(prev => ({
+                  ...prev,
+                  currentUser: prev.currentUser ? { ...prev.currentUser, plans: prev.currentUser.plans.map(p => p.id === id ? updated : p) } : null
+                }));
+              }
             }}
           />
         )}
@@ -411,6 +463,7 @@ const App: React.FC = () => {
             onStartReading={() => setState(prev => ({ ...prev, currentView: 'reader' }))}
             onJumpToDay={jumpToDay}
             onSyncPlan={handleSyncPlan}
+            onToggleFinish={(id, finished) => handleToggleFinishPlan(id, finished)}
             backgroundStatus={backgroundGenStatus[activePlanMetadata.id]}
             onReviewQuiz={(dayIdx) => {
               const day = activePlanMetadata.days[dayIdx];
@@ -426,11 +479,15 @@ const App: React.FC = () => {
             }}
             onUpdateTitle={(title) => {
               if (!state.currentUser) return;
-              const updatedPlans = state.currentUser.plans.map(p => {
-                if (p.id === activePlanMetadata.id) { const updated = { ...p, fileName: title }; syncPlanToSupabase(updated); return updated; }
-                return p;
-              });
-              setState(prev => ({ ...prev, currentUser: prev.currentUser ? { ...prev.currentUser, plans: updatedPlans } : null }));
+              const plan = state.currentUser.plans.find(p => p.id === activePlanMetadata.id);
+              if (plan) {
+                const updated = { ...plan, fileName: title };
+                syncPlanToSupabase(updated);
+                setState(prev => ({
+                  ...prev,
+                  currentUser: prev.currentUser ? { ...prev.currentUser, plans: prev.currentUser.plans.map(p => p.id === activePlanMetadata.id ? updated : p) } : null
+                }));
+              }
             }}
           />
         )}

@@ -9,6 +9,7 @@ interface DashboardProps {
   onUpdateTitle: (newTitle: string) => void;
   onJumpToDay: (dayIdx: number) => void;
   onSyncPlan: (planId: string) => Promise<void>;
+  onToggleFinish: (planId: string, finished: boolean) => void;
   backgroundStatus?: { current: number, total: number };
 }
 
@@ -19,14 +20,21 @@ const Dashboard: React.FC<DashboardProps> = ({
   onUpdateTitle, 
   onJumpToDay,
   onSyncPlan,
+  onToggleFinish,
   backgroundStatus
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [showFinishModal, setShowFinishModal] = useState(false);
   const [tempTitle, setTempTitle] = useState(plan.fileName);
 
   const currentDay = plan.days[plan.currentDayIndex];
-  const progressPercent = Math.round((plan.days.filter(d => d.isCompleted).length / plan.days.length) * 100);
+  const completedDays = plan.days.filter(d => d.isCompleted);
+  const progressPercent = Math.round((completedDays.length / plan.days.length) * 100);
+  const isFinished = plan.isFinished || false;
+
+  // Se o livro estiver finalizado, mostramos apenas os dias concluídos
+  const visibleDays = isFinished ? completedDays : plan.days;
 
   const handleSave = () => {
     if (tempTitle.trim()) {
@@ -41,8 +49,42 @@ const Dashboard: React.FC<DashboardProps> = ({
     setTimeout(() => setIsSyncing(false), 1000);
   };
 
+  const confirmFinish = () => {
+    onToggleFinish(plan.id, true);
+    setShowFinishModal(false);
+  };
+
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      {/* Modal de Confirmação de Finalização */}
+      {showFinishModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl border border-slate-100 dark:border-slate-800 animate-in zoom-in-95">
+            <div className="w-16 h-16 bg-red-50 dark:bg-red-900/20 rounded-2xl flex items-center justify-center text-red-600 mb-6 mx-auto">
+              <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            </div>
+            <h3 className="text-2xl font-black text-center text-slate-800 dark:text-slate-100 mb-2">Finalizar Livro?</h3>
+            <p className="text-slate-500 dark:text-slate-400 text-center mb-8">
+              Ao finalizar, as metas pendentes serão ocultadas e o livro será marcado como concluído na sua coleção. Você pode restaurar o plano a qualquer momento.
+            </p>
+            <div className="flex flex-col gap-3">
+              <button 
+                onClick={confirmFinish}
+                className="w-full py-4 bg-red-600 hover:bg-red-700 text-white font-black rounded-2xl shadow-lg shadow-red-200 dark:shadow-none transition-all active:scale-95"
+              >
+                Sim, Finalizar Agora
+              </button>
+              <button 
+                onClick={() => setShowFinishModal(false)}
+                className="w-full py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold rounded-2xl hover:bg-slate-200 dark:hover:bg-slate-700 transition-all"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
         <div className="flex-grow">
           {isEditing ? (
@@ -59,7 +101,10 @@ const Dashboard: React.FC<DashboardProps> = ({
             </div>
           ) : (
             <div className="flex items-center gap-3 group">
-              <h2 className="text-3xl font-bold text-slate-800 dark:text-slate-100 leading-tight">{plan.fileName}</h2>
+              <h2 className="text-3xl font-bold text-slate-800 dark:text-slate-100 leading-tight">
+                {plan.fileName}
+                {isFinished && <span className="ml-3 inline-flex items-center px-3 py-1 rounded-full bg-emerald-100 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 text-[10px] font-black uppercase tracking-widest border border-emerald-200 dark:border-emerald-900/40">Concluído</span>}
+              </h2>
               <button 
                 onClick={() => setIsEditing(true)}
                 className="p-2 text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 opacity-0 group-hover:opacity-100 transition-all"
@@ -82,6 +127,16 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
         
         <div className="flex flex-wrap gap-2">
+           {!isFinished && (
+             <button 
+              onClick={() => setShowFinishModal(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-2xl font-bold text-xs transition-all border border-slate-200 dark:border-slate-800 text-slate-500 hover:text-red-500 hover:border-red-100 dark:hover:border-red-900/40 hover:bg-red-50 dark:hover:bg-red-950/20"
+             >
+               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+               Finalizar Livro
+             </button>
+           )}
+
            <button 
             onClick={handleSync}
             disabled={isSyncing}
@@ -118,29 +173,32 @@ const Dashboard: React.FC<DashboardProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-3xl p-8 shadow-sm border border-slate-100 dark:border-slate-800">
           <div className="flex justify-between items-center mb-6">
-            <h3 className="text-2xl font-bold text-slate-800 dark:text-slate-100 font-heading">Sua Jornada</h3>
-            <span className="bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 px-4 py-1 rounded-full font-bold text-sm">
-              {progressPercent}% concluído
+            <h3 className="text-2xl font-bold text-slate-800 dark:text-slate-100 font-heading">
+              {isFinished ? 'Conquistas' : 'Sua Jornada'}
+            </h3>
+            <span className={`px-4 py-1 rounded-full font-bold text-sm ${isFinished ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400' : 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300'}`}>
+              {isFinished ? 'Livro Finalizado' : `${progressPercent}% concluído`}
             </span>
           </div>
           
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
-            {plan.days.map((day, idx) => {
+            {visibleDays.map((day, idx) => {
               const isCompleted = day.isCompleted;
-              const isCurrent = idx === plan.currentDayIndex;
+              const realDayIdx = plan.days.findIndex(d => d.dayNumber === day.dayNumber);
+              const isCurrent = !isFinished && realDayIdx === plan.currentDayIndex;
               const hasQuiz = day.quiz && day.quiz.length > 0;
               
               return (
                 <div 
                   key={day.dayNumber}
-                  onClick={() => onJumpToDay(idx)}
-                  className={`p-4 rounded-3xl border flex flex-col items-center justify-center gap-1 transition-all relative group cursor-pointer h-32 ${
+                  onClick={() => !isFinished && onJumpToDay(realDayIdx)}
+                  className={`p-4 rounded-3xl border flex flex-col items-center justify-center gap-1 transition-all relative group h-32 ${
                     isCompleted 
                       ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-100 dark:border-emerald-900/30 text-emerald-700 dark:text-emerald-400 hover:scale-[1.03]' 
                       : isCurrent
                       ? 'bg-indigo-600 border-indigo-600 text-white ring-4 ring-indigo-100 dark:ring-indigo-900/30 scale-105' 
                       : 'bg-slate-50 dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-400 dark:text-slate-500'
-                  }`}
+                  } ${!isFinished ? 'cursor-pointer' : ''}`}
                 >
                   <div className="absolute top-2 right-2 flex flex-col items-end gap-1">
                     {isCompleted && (
@@ -151,7 +209,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                         <button 
                           onClick={(e) => {
                               e.stopPropagation();
-                              onReviewQuiz(idx);
+                              onReviewQuiz(realDayIdx);
                           }}
                           className="bg-white dark:bg-slate-800 p-1.5 rounded-lg shadow-sm border border-slate-100 dark:border-slate-700 text-indigo-600 dark:text-indigo-400 opacity-0 group-hover:opacity-100 transition-all hover:scale-110 active:scale-95 z-20"
                           title="Rever Quiz"
@@ -160,7 +218,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                         </button>
                       </>
                     )}
-                    {!isCompleted && hasQuiz && (
+                    {!isCompleted && !isFinished && hasQuiz && (
                       <div className="bg-indigo-400 text-white p-0.5 rounded-full shadow-sm animate-pulse" title="Quiz disponível">
                          <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M12 2v4"/><path d="m4.93 4.93 2.83 2.83"/><path d="M2 12h4"/><path d="m4.93 19.07 2.83-2.83"/><path d="M12 18v4"/><path d="m19.07 19.07-2.83-2.83"/><path d="M18 12h4"/><path d="m19.07 4.93-2.83 2.83"/></svg>
                       </div>
@@ -181,27 +239,50 @@ const Dashboard: React.FC<DashboardProps> = ({
           </div>
         </div>
 
-        <div className="bg-gradient-to-br from-indigo-600 to-violet-700 rounded-3xl p-8 text-white shadow-xl flex flex-col justify-between h-full relative overflow-hidden group">
-          <div className="absolute -right-8 -top-8 w-32 h-32 bg-white/10 rounded-full blur-2xl group-hover:bg-white/20 transition-all duration-700" />
-          <div className="relative z-10">
-            <h3 className="text-2xl font-bold mb-2 font-heading">Meta Selecionada</h3>
-            <p className="opacity-90 text-lg mb-6 leading-relaxed">
-              {currentDay.isCompleted ? (
-                <span>Você já concluiu o Dia {currentDay.dayNumber}. <br/>Deseja ler novamente as páginas <span className="font-bold underline text-white">{currentDay.startPage}-{currentDay.endPage}</span>?</span>
-              ) : (
-                <span>Você está no Dia {currentDay.dayNumber}. <br/>Leia das páginas <span className="font-bold underline text-white">{currentDay.startPage}</span> até <span className="font-bold underline text-white">{currentDay.endPage}</span>.</span>
-              )}
-            </p>
+        {isFinished ? (
+          <div className="bg-emerald-600 rounded-3xl p-8 text-white shadow-xl flex flex-col justify-between h-full relative overflow-hidden group">
+            <div className="absolute -right-8 -top-8 w-32 h-32 bg-white/10 rounded-full blur-2xl group-hover:bg-white/20 transition-all duration-700" />
+            <div className="relative z-10 text-center">
+              <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-6 backdrop-blur-md">
+                <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="animate-bounce"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>
+              </div>
+              <h3 className="text-2xl font-black mb-2 font-heading tracking-tight">Obra Concluída!</h3>
+              <p className="opacity-90 text-sm mb-8 leading-relaxed">
+                Parabéns! Você concluiu sua leitura. Seu conhecimento foi expandido e sua biblioteca agora conta com mais um tesouro intelectual.
+              </p>
+            </div>
+            
+            <button 
+              onClick={() => onToggleFinish(plan.id, false)}
+              className="w-full bg-white/10 hover:bg-white/20 border border-white/30 text-white font-bold py-4 px-6 rounded-2xl transition-all hover:scale-[1.02] flex items-center justify-center gap-2 relative z-10 backdrop-blur-sm"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg>
+              Restaurar Plano
+            </button>
           </div>
-          
-          <button 
-            onClick={onStartReading}
-            className="w-full bg-white text-indigo-600 font-bold py-4 px-6 rounded-2xl hover:bg-slate-50 transition-all hover:scale-[1.02] shadow-lg flex items-center justify-center gap-2 relative z-10"
-          >
-            {currentDay.isCompleted ? 'Reler Conteúdo' : 'Começar a Ler Agora'}
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
-          </button>
-        </div>
+        ) : (
+          <div className="bg-gradient-to-br from-indigo-600 to-violet-700 rounded-3xl p-8 text-white shadow-xl flex flex-col justify-between h-full relative overflow-hidden group">
+            <div className="absolute -right-8 -top-8 w-32 h-32 bg-white/10 rounded-full blur-2xl group-hover:bg-white/20 transition-all duration-700" />
+            <div className="relative z-10">
+              <h3 className="text-2xl font-bold mb-2 font-heading">Meta Selecionada</h3>
+              <p className="opacity-90 text-lg mb-6 leading-relaxed">
+                {currentDay.isCompleted ? (
+                  <span>Você já concluiu o Dia {currentDay.dayNumber}. <br/>Deseja ler novamente as páginas <span className="font-bold underline text-white">{currentDay.startPage}-{currentDay.endPage}</span>?</span>
+                ) : (
+                  <span>Você está no Dia {currentDay.dayNumber}. <br/>Leia das páginas <span className="font-bold underline text-white">{currentDay.startPage}</span> até <span className="font-bold underline text-white">{currentDay.endPage}</span>.</span>
+                )}
+              </p>
+            </div>
+            
+            <button 
+              onClick={onStartReading}
+              className="w-full bg-white text-indigo-600 font-bold py-4 px-6 rounded-2xl hover:bg-slate-50 transition-all hover:scale-[1.02] shadow-lg flex items-center justify-center gap-2 relative z-10"
+            >
+              {currentDay.isCompleted ? 'Reler Conteúdo' : 'Começar a Ler Agora'}
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

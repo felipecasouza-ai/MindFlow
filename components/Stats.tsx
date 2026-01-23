@@ -13,7 +13,8 @@ const Stats: React.FC<StatsProps> = ({ activePlan, allPlans }) => {
 
   // Helper to format seconds
   const formatSeconds = (secs: number) => {
-    if (secs === 0 || isNaN(secs)) return "--";
+    if (secs === 0) return "0s";
+    if (isNaN(secs)) return "--";
     const h = Math.floor(secs / 3600);
     const m = Math.floor((secs % 3600) / 60);
     const s = Math.floor(secs % 60);
@@ -24,6 +25,8 @@ const Stats: React.FC<StatsProps> = ({ activePlan, allPlans }) => {
 
   // ACTIVE PLAN CALCULATIONS
   const activeCompletedDays = activePlan.days.filter(d => d.isCompleted);
+  const isFinished = activePlan.isFinished || false;
+  
   const activeAvgScore = activeCompletedDays.length > 0 
     ? (activeCompletedDays.reduce((acc, d) => acc + (d.quizScore || 0), 0) / activeCompletedDays.length).toFixed(1)
     : "0.0";
@@ -31,24 +34,29 @@ const Stats: React.FC<StatsProps> = ({ activePlan, allPlans }) => {
   const activeTotalPagesRead = activeCompletedDays.reduce((acc, d) => acc + (d.endPage - d.startPage + 1), 0);
   const activeTimePerPage = activeTotalPagesRead > 0 ? activeTotalTime / activeTotalPagesRead : 0;
   
-  // Estimation for completion
-  const activeRemainingPages = Math.max(0, activePlan.totalPages - activeTotalPagesRead);
-  const activeEstimatedTimeRemaining = activeRemainingPages * activeTimePerPage;
+  // Estimation for completion - Se finalizado, páginas restantes e tempo são 0
+  const activeRemainingPages = isFinished ? 0 : Math.max(0, activePlan.totalPages - activeTotalPagesRead);
+  const activeEstimatedTimeRemaining = isFinished ? 0 : activeRemainingPages * activeTimePerPage;
 
   const activeAvgTimePerDay = activeCompletedDays.length > 0 ? activeTotalTime / activeCompletedDays.length : 0;
   const activeAvgMinutesPerDay = activeAvgTimePerDay / 60;
 
-  const activeChartData = activePlan.days.map(d => ({
+  // Filtrar dados do gráfico conforme solicitado: se finalizado, apenas dias concluídos
+  const baseChartDays = isFinished 
+    ? activeCompletedDays 
+    : activePlan.days.slice(0, Math.max(activePlan.currentDayIndex + 5, 10));
+
+  const activeChartData = baseChartDays.map(d => ({
     name: `Dia ${d.dayNumber}`,
     score: d.quizScore || 0,
     tempo: d.isCompleted ? Math.round((d.timeSpentSeconds || 0) / 60 * 10) / 10 : null,
     status: d.isCompleted ? 'Concluído' : 'Pendente'
-  })).slice(0, Math.max(activePlan.currentDayIndex + 5, 10));
+  }));
 
   // GLOBAL CALCULATIONS
   const allCompletedDays = allPlans.flatMap(p => p.days.filter(d => d.isCompleted));
   const globalTotalBooks = allPlans.length;
-  const globalFinishedBooks = allPlans.filter(p => p.days.every(d => d.isCompleted)).length;
+  const globalFinishedBooks = allPlans.filter(p => p.isFinished || p.days.every(d => d.isCompleted)).length;
   const globalTotalPages = allPlans.reduce((acc, p) => acc + p.days.filter(d => d.isCompleted).reduce((pa, d) => pa + (d.endPage - d.startPage + 1), 0), 0);
   const globalTotalTime = allPlans.reduce((acc, p) => acc + p.days.reduce((ta, d) => ta + (d.timeSpentSeconds || 0), 0), 0);
   const globalAvgScore = allCompletedDays.length > 0 
@@ -63,7 +71,7 @@ const Stats: React.FC<StatsProps> = ({ activePlan, allPlans }) => {
   const libraryComparisonData = allPlans.map(p => {
     const done = p.days.filter(d => d.isCompleted).length;
     const total = p.days.length;
-    const prog = total > 0 ? Math.round((done / total) * 100) : 0;
+    const prog = p.isFinished ? 100 : (total > 0 ? Math.round((done / total) * 100) : 0);
     return {
       name: p.fileName.length > 12 ? p.fileName.substring(0, 12) + '...' : p.fileName,
       fullName: p.fileName,
@@ -123,14 +131,19 @@ const Stats: React.FC<StatsProps> = ({ activePlan, allPlans }) => {
       {viewMode === 'active' ? (
         <>
           {/* ACTIVE PLAN VIEW */}
-          <div className="bg-gradient-to-r from-indigo-600 to-violet-600 rounded-3xl p-8 text-white shadow-lg relative overflow-hidden group">
+          <div className={`bg-gradient-to-r ${isFinished ? 'from-emerald-600 to-teal-600' : 'from-indigo-600 to-violet-600'} rounded-3xl p-8 text-white shadow-lg relative overflow-hidden group`}>
             <div className="absolute -right-10 -top-10 w-40 h-40 bg-white/10 rounded-full blur-3xl group-hover:scale-110 transition-transform duration-700" />
             <div className="relative z-10 flex flex-col md:flex-row gap-8 items-center">
               <div className="flex-grow">
-                <h3 className="text-xl font-bold mb-1 font-heading">Foco: {activePlan.fileName}</h3>
+                <h3 className="text-xl font-bold mb-1 font-heading">
+                  {isFinished ? 'Finalizado: ' : 'Foco: '}{activePlan.fileName}
+                </h3>
                 <p className="opacity-80 text-sm leading-relaxed max-w-md">
-                  Seu progresso atual é de <span className="font-bold">{activePlan.days.length > 0 ? Math.round((activeCompletedDays.length / activePlan.days.length) * 100) : 0}%</span>. 
-                  Baseado no seu ritmo de <span className="font-bold">{formatSeconds(activeTimePerPage)} por página</span>.
+                  {isFinished ? (
+                    <span>Meta 100% batida! Você concluiu todos os objetivos deste plano de estudo.</span>
+                  ) : (
+                    <span>Seu progresso atual é de <span className="font-bold">{activePlan.days.length > 0 ? Math.round((activeCompletedDays.length / activePlan.days.length) * 100) : 0}%</span>. Baseado no seu ritmo de <span className="font-bold">{formatSeconds(activeTimePerPage)} por página</span>.</span>
+                  )}
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-4 shrink-0 w-full md:w-auto">
@@ -150,8 +163,8 @@ const Stats: React.FC<StatsProps> = ({ activePlan, allPlans }) => {
             <StatBox title="Quiz Score" value={activeAvgScore} sub="/ 5.0" color="emerald" />
             <StatBox title="Tempo Total" value={formatSeconds(activeTotalTime)} color="indigo" />
             <StatBox title="Média Tempo/Dia" value={formatSeconds(activeAvgTimePerDay)} color="indigo" />
-            <StatBox title="Término Estimado" value={formatSeconds(activeEstimatedTimeRemaining)} color="rose" />
-            <StatBox title="Metas Batidas" value={activeCompletedDays.length} sub={`/ ${activePlan.days.length}`} color="amber" />
+            <StatBox title="Término Estimado" value={isFinished ? "0m" : formatSeconds(activeEstimatedTimeRemaining)} color={isFinished ? "emerald" : "rose"} />
+            <StatBox title="Metas Batidas" value={activeCompletedDays.length} sub={`/ ${isFinished ? activeCompletedDays.length : activePlan.days.length}`} color="amber" />
             <StatBox title="Média Pág/Dia" value={activeCompletedDays.length > 0 ? Math.round(activeTotalPagesRead / activeCompletedDays.length) : "--"} color="teal" />
           </div>
 
@@ -280,21 +293,24 @@ const Stats: React.FC<StatsProps> = ({ activePlan, allPlans }) => {
                          const pTime = p.days.reduce((acc, d) => acc + (d.timeSpentSeconds || 0), 0);
                          const pScores = p.days.filter(d => d.quizScore !== undefined).map(d => d.quizScore!);
                          const pAvg = pScores.length > 0 ? (pScores.reduce((a, b) => a + b, 0) / pScores.length).toFixed(1) : "--";
-                         const isDone = done === total && total > 0;
-                         const progressRatio = total > 0 ? Math.round((done / total) * 100) : 0;
+                         const isPlanFinished = p.isFinished || (done === total && total > 0);
+                         const progressRatio = isPlanFinished ? 100 : (total > 0 ? Math.round((done / total) * 100) : 0);
                          
                          return (
                             <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
                                <td className="px-8 py-6">
-                                  <p className="font-bold text-slate-800 dark:text-slate-200 text-sm truncate max-w-[250px]">{p.fileName}</p>
+                                  <div className="flex items-center gap-2">
+                                    <p className="font-bold text-slate-800 dark:text-slate-200 text-sm truncate max-w-[250px]">{p.fileName}</p>
+                                    {isPlanFinished && <span className="text-[8px] bg-emerald-100 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 rounded font-black uppercase">Fim</span>}
+                                  </div>
                                   <p className="text-[10px] text-slate-400 font-medium">{p.totalPages} páginas</p>
                                </td>
                                <td className="px-8 py-6">
                                   <div className="flex items-center gap-3">
                                       <div className="w-24 h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden shrink-0">
-                                          <div className={`h-full transition-all duration-1000 ${isDone ? 'bg-emerald-500' : 'bg-indigo-500'}`} style={{ width: `${progressRatio}%` }} />
+                                          <div className={`h-full transition-all duration-1000 ${isPlanFinished ? 'bg-emerald-500' : 'bg-indigo-500'}`} style={{ width: `${progressRatio}%` }} />
                                       </div>
-                                      <span className="text-[10px] font-black text-slate-500">{done}/{total}</span>
+                                      <span className="text-[10px] font-black text-slate-500">{isPlanFinished ? total : done}/{total}</span>
                                   </div>
                                </td>
                                <td className="px-8 py-6 text-xs font-mono font-bold text-slate-500">{formatSeconds(pTime)}</td>

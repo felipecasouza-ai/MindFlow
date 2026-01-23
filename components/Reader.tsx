@@ -224,44 +224,44 @@ const Reader: React.FC<ReaderProps> = ({ pdfData, currentDay, onDayComplete, onC
         </div>
       </div>
 
-      <div className="relative z-50 bg-slate-900/95 backdrop-blur-md p-4 border-t border-white/5 flex justify-center items-center gap-8 shadow-[0_-10px_30px_rgba(0,0,0,0.5)]">
+      <div className="relative z-50 bg-slate-900/95 backdrop-blur-md p-2 border-t border-white/5 flex justify-center items-center gap-4 shadow-[0_-10px_30px_rgba(0,0,0,0.5)]">
         <button 
           onClick={handlePrev} 
           disabled={displayPage <= currentDay.startPage} 
-          className="w-14 h-14 flex items-center justify-center bg-slate-800 hover:bg-slate-700 disabled:opacity-5 rounded-2xl text-white transition-all active:scale-90 border border-white/5 shadow-xl"
+          className="w-10 h-10 flex items-center justify-center bg-slate-800 hover:bg-slate-700 disabled:opacity-5 rounded-xl text-white transition-all active:scale-90 border border-white/5 shadow-xl"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
         </button>
 
-        <div className="flex flex-col items-center gap-3">
+        <div className="flex flex-col items-center gap-1">
             <div className="flex gap-2">
                 {Array.from({ length: Math.min(currentDay.endPage - currentDay.startPage + 1, 15) }).map((_, i) => {
                     const p = currentDay.startPage + i;
                     return (
                         <div 
                           key={i} 
-                          className={`h-2 rounded-full transition-all duration-700 ${
-                            p === displayPage ? 'bg-indigo-500 w-8 shadow-[0_0_10px_rgba(99,102,241,0.8)]' : 
-                            p < displayPage ? 'bg-emerald-500/50 w-2.5' : 
-                            'bg-slate-800 w-2.5'
+                          className={`h-1.5 rounded-full transition-all duration-700 ${
+                            p === displayPage ? 'bg-indigo-500 w-6 shadow-[0_0_8px_rgba(99,102,241,0.8)]' : 
+                            p < displayPage ? 'bg-emerald-500/50 w-1.5' : 
+                            'bg-slate-800 w-1.5'
                           }`} 
                         />
                     );
                 })}
             </div>
-            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest opacity-80">Progresso da Sessão</span>
+            <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest opacity-80">Progresso da Sessão</span>
         </div>
 
         <button 
           onClick={handleNext} 
           disabled={displayPage >= currentDay.endPage} 
-          className="w-14 h-14 flex items-center justify-center bg-slate-800 hover:bg-slate-700 disabled:opacity-5 rounded-2xl text-white transition-all active:scale-90 border border-white/5 shadow-xl"
+          className="w-10 h-10 flex items-center justify-center bg-slate-800 hover:bg-slate-700 disabled:opacity-5 rounded-xl text-white transition-all active:scale-90 border border-white/5 shadow-xl"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
         </button>
       </div>
 
-      <div className="h-1.5 bg-slate-800 w-full relative z-50">
+      <div className="h-1 bg-slate-800 w-full relative z-50">
         <div 
           className="h-full bg-gradient-to-r from-indigo-600 via-indigo-500 to-emerald-500 transition-all duration-700 shadow-[0_0_15px_rgba(99,102,241,0.6)]" 
           style={{ width: `${progress}%` }} 

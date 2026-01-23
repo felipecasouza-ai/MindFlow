@@ -43,6 +43,7 @@ export interface ReadingPlan {
   lastAccessed: number;
   storagePath?: string;
   user_id?: string;
+  isFinished?: boolean; // Novo: indica se o livro foi finalizado manualmente
 }
 
 export interface User {

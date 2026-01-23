@@ -114,16 +114,26 @@ const Library: React.FC<LibraryProps> = ({ plans, onSelectPlan, onUpload, onDele
             const progress = Math.round((completed / plan.days.length) * 100);
             const isEditing = editingId === plan.id;
             const isDownloading = downloadingId === plan.id;
+            const isFinished = plan.isFinished || false;
             
             return (
               <div 
                 key={plan.id}
-                className="bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-sm border border-slate-100 dark:border-slate-800 hover:shadow-xl dark:hover:shadow-indigo-900/10 transition-all group flex flex-col justify-between"
+                className={`bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-sm border ${isFinished ? 'border-emerald-200 dark:border-emerald-900/40' : 'border-slate-100 dark:border-slate-800'} hover:shadow-xl dark:hover:shadow-indigo-900/10 transition-all group flex flex-col justify-between relative`}
               >
+                {isFinished && (
+                  <div className="absolute top-4 right-1/2 translate-x-1/2 z-10">
+                     <span className="bg-emerald-500 text-white text-[9px] font-black px-2 py-0.5 rounded-full shadow-sm uppercase tracking-tighter">Concluído</span>
+                  </div>
+                )}
                 <div>
                   <div className="flex justify-between items-start mb-4">
-                    <div className="bg-indigo-50 dark:bg-indigo-950/40 p-3 rounded-2xl text-indigo-600 dark:text-indigo-400 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                    <div className={`p-3 rounded-2xl transition-colors ${isFinished ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400' : 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 group-hover:bg-indigo-600 group-hover:text-white'}`}>
+                      {isFinished ? (
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                      ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                      )}
                     </div>
                     <div className="flex gap-1">
                       <button 
@@ -162,7 +172,7 @@ const Library: React.FC<LibraryProps> = ({ plans, onSelectPlan, onUpload, onDele
                       className="w-full text-lg font-bold text-slate-800 dark:text-slate-100 bg-slate-50 dark:bg-slate-800 p-2 rounded-lg border-2 border-indigo-500 focus:outline-none mb-2"
                     />
                   ) : (
-                    <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 line-clamp-2 mb-2 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                    <h3 className={`text-lg font-bold text-slate-800 dark:text-slate-100 line-clamp-2 mb-2 transition-colors ${isFinished ? 'text-emerald-700 dark:text-emerald-400' : 'group-hover:text-indigo-600 dark:group-hover:text-indigo-400'}`}>
                       {plan.fileName}
                     </h3>
                   )}
@@ -186,15 +196,19 @@ const Library: React.FC<LibraryProps> = ({ plans, onSelectPlan, onUpload, onDele
                       <span>{progress}%</span>
                     </div>
                     <div className="h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                      <div className="h-full bg-indigo-500 dark:bg-indigo-600 rounded-full transition-all duration-1000" style={{ width: `${progress}%` }} />
+                      <div className={`h-full rounded-full transition-all duration-1000 ${isFinished ? 'bg-emerald-500' : 'bg-indigo-500'}`} style={{ width: `${progress}%` }} />
                     </div>
                   </div>
                   
                   <button 
                     onClick={() => onSelectPlan(plan.id)}
-                    className="w-full py-3 px-4 bg-slate-50 dark:bg-slate-800 hover:bg-indigo-600 dark:hover:bg-indigo-600 hover:text-white text-indigo-600 dark:text-indigo-400 font-bold rounded-2xl transition-all flex items-center justify-center gap-2"
+                    className={`w-full py-3 px-4 font-bold rounded-2xl transition-all flex items-center justify-center gap-2 ${
+                      isFinished 
+                      ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-600 hover:text-white' 
+                      : 'bg-slate-50 dark:bg-slate-800 hover:bg-indigo-600 dark:hover:bg-indigo-600 hover:text-white text-indigo-600 dark:text-indigo-400'
+                    }`}
                   >
-                    Retomar Leitura
+                    {isFinished ? 'Ver Resumo' : 'Retomar Leitura'}
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
                   </button>
                 </div>
