@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { ReadingPlan } from '../types';
+import { APP_VERSION } from '../App';
 
 interface UserGroup {
   userId: string;
@@ -32,6 +33,7 @@ const AdminPanel: React.FC = () => {
 
   const fetchAllData = async () => {
     setLoading(true);
+    addLog(`MindFlow Core ${APP_VERSION} inicializado.`, "success");
     addLog("Sincronizando registros mestre...", "info");
     try {
       const { data, error } = await supabase
@@ -61,7 +63,8 @@ const AdminPanel: React.FC = () => {
           currentDayIndex: item.current_day_index,
           lastAccessed: item.last_accessed,
           storagePath: item.storage_path,
-          pdfData: ""
+          pdfData: "",
+          isFinished: !!item.is_finished
         });
       });
 
@@ -148,7 +151,10 @@ COMMIT;`;
     <div className="space-y-8 animate-in fade-in duration-500 pb-20">
       <div className="flex justify-between items-end">
         <div>
-          <h2 className="text-4xl font-black text-slate-800 dark:text-slate-100 font-heading tracking-tight">Administração</h2>
+          <div className="flex items-center gap-2 mb-1">
+             <h2 className="text-4xl font-black text-slate-800 dark:text-slate-100 font-heading tracking-tight">Administração</h2>
+             <span className="bg-slate-200 dark:bg-slate-800 text-slate-500 text-[10px] px-2 py-0.5 rounded font-black">{APP_VERSION}</span>
+          </div>
           <p className="text-slate-500 dark:text-slate-400">Monitoramento de tráfego e integridade da rede.</p>
         </div>
         <button onClick={fetchAllData} className="px-5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-all active:scale-95">
@@ -166,7 +172,7 @@ COMMIT;`;
         <div className="flex justify-between items-center mb-6">
           <div className="flex items-center gap-3">
             <div className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse shadow-[0_0_8px_#6366f1]"></div>
-            <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-400">Terminal de Auditoria</h3>
+            <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-400">Terminal de Auditoria - Build {APP_VERSION}</h3>
           </div>
           <button onClick={() => setLogs([])} className="text-[10px] text-slate-600 hover:text-white transition-colors uppercase font-bold">Flush Logs</button>
         </div>
@@ -209,7 +215,7 @@ COMMIT;`;
                     <div className="flex flex-wrap gap-2">
                       {user.plans.map(p => (
                         <div key={p.id} className="text-[9px] bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-full text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700 font-bold">
-                          {p.fileName}
+                          {p.fileName} {p.isFinished && "✅"}
                         </div>
                       ))}
                       {user.plans.length === 0 && <span className="text-xs text-slate-400 italic">Vazio</span>}

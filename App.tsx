@@ -17,6 +17,7 @@ import { supabase } from './services/supabaseClient';
 
 const PDF_JS_VERSION = '3.11.174';
 const ADMIN_EMAIL = 'admin@mindflow.com';
+export const APP_VERSION = '1.2.5'; // Versão atualizada do sistema
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>(() => {
@@ -158,7 +159,7 @@ const App: React.FC = () => {
         currentDayIndex: item.current_day_index,
         lastAccessed: Number(item.last_accessed) || Date.now(),
         storagePath: item.storage_path,
-        isFinished: !!item.is_finished, // Garantia de booleano
+        isFinished: !!item.is_finished, // Garantia de booleano vindo do snake_case
         pdfData: ""
       }));
 
@@ -177,7 +178,7 @@ const App: React.FC = () => {
       current_day_index: plan.currentDayIndex, 
       days: plan.days, 
       last_accessed: Date.now(),
-      is_finished: !!plan.isFinished // Garante que is_finished seja enviado corretamente
+      is_finished: plan.isFinished ?? false // Garante persistência explícita
     }).eq('id', plan.id);
     
     if (error) {
@@ -251,7 +252,7 @@ const App: React.FC = () => {
 
     const updatedPlan: ReadingPlan = { ...planToUpdate, isFinished: finished };
 
-    // Atualiza estado local primeiro para UI responsiva
+    // 1. Atualiza estado local primeiro para UI responsiva
     setState(prev => {
       if (!prev.currentUser) return prev;
       return {
@@ -263,13 +264,13 @@ const App: React.FC = () => {
       };
     });
 
-    // Sincroniza com a nuvem
+    // 2. Sincroniza com a nuvem imediatamente
     setIsCloudSyncing(true);
     try {
       await syncPlanToSupabase(updatedPlan);
     } catch (e: any) {
+      console.error("Erro ao salvar status is_finished:", e);
       alert(`Erro ao salvar status: ${e.message}`);
-      // Opcional: Reverter estado em caso de erro crítico
     } finally {
       setIsCloudSyncing(false);
     }
