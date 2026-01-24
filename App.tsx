@@ -17,7 +17,7 @@ import { supabase } from './services/supabaseClient';
 
 const PDF_JS_VERSION = '3.11.174';
 const ADMIN_EMAIL = 'admin@mindflow.com';
-export const APP_VERSION = '1.2.6'; // Versão incrementada
+export const APP_VERSION = '1.2.7'; // Versão atualizada
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>(() => {
@@ -140,7 +140,6 @@ const App: React.FC = () => {
   }, [state.activePlanId, state.currentUser]);
 
   const handleLogout = async () => {
-    // Reset imediato do estado local para feedback visual instantâneo
     setState(prev => ({
       ...prev,
       currentUser: null,
@@ -590,7 +589,7 @@ const App: React.FC = () => {
           <Stats activePlan={activePlanMetadata} allPlans={state.currentUser?.plans || []} />
         )}
       </main>
-      <footer className="py-6 text-center text-slate-500 dark:text-slate-400 text-sm border-t border-slate-200 dark:border-slate-800">© {new Date().getFullYear()} MindFlow - Cloud Storage Powered by Supabase</footer>
+      <footer className="py-6 text-center text-slate-500 dark:text-slate-400 text-sm border-t border-slate-200 dark:border-slate-800">© {new Date().getFullYear()} MindFlow - v{APP_VERSION} - Powered by Supabase</footer>
     </div>
   );
 };
