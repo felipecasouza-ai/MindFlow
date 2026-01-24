@@ -73,6 +73,14 @@ const Library: React.FC<LibraryProps> = ({ plans, onSelectPlan, onUpload, onDele
     }
   };
 
+  // Ordenar livros: não finalizados primeiro, finalizados no fim
+  const sortedPlans = [...plans].sort((a, b) => {
+    const aFinished = a.isFinished || false;
+    const bFinished = b.isFinished || false;
+    if (aFinished === bFinished) return 0;
+    return aFinished ? 1 : -1;
+  });
+
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -109,12 +117,13 @@ const Library: React.FC<LibraryProps> = ({ plans, onSelectPlan, onUpload, onDele
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {plans.map((plan) => {
+          {sortedPlans.map((plan) => {
+            const isFinished = plan.isFinished || false;
             const completed = plan.days.filter(d => d.isCompleted).length;
-            const progress = Math.round((completed / plan.days.length) * 100);
+            // Força 100% se o livro estiver marcado como finalizado
+            const progress = isFinished ? 100 : Math.round((completed / plan.days.length) * 100);
             const isEditing = editingId === plan.id;
             const isDownloading = downloadingId === plan.id;
-            const isFinished = plan.isFinished || false;
             
             return (
               <div 
