@@ -44,7 +44,6 @@ const Library: React.FC<LibraryProps> = ({ plans, onSelectPlan, onUpload, onDele
         bytes[i] = binaryString.charCodeAt(i);
       }
 
-      // Usando cast para any para evitar erro de compatibilidade de buffer no TS durante o build
       const blob = new Blob([bytes as any], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -73,10 +72,12 @@ const Library: React.FC<LibraryProps> = ({ plans, onSelectPlan, onUpload, onDele
     }
   };
 
-  // Ordenar livros: não finalizados primeiro, finalizados no fim
   const sortedPlans = [...plans].sort((a, b) => {
-    const aFinished = a.isFinished || false;
-    const bFinished = b.isFinished || false;
+    const aCompleted = a.days.filter(d => d.isCompleted).length;
+    const bCompleted = b.days.filter(d => d.isCompleted).length;
+    const aFinished = a.isFinished || (aCompleted === a.days.length && a.days.length > 0);
+    const bFinished = b.isFinished || (bCompleted === b.days.length && b.days.length > 0);
+    
     if (aFinished === bFinished) return 0;
     return aFinished ? 1 : -1;
   });
@@ -118,10 +119,9 @@ const Library: React.FC<LibraryProps> = ({ plans, onSelectPlan, onUpload, onDele
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {sortedPlans.map((plan) => {
-            const isFinished = plan.isFinished || false;
-            const completed = plan.days.filter(d => d.isCompleted).length;
-            // Força 100% se o livro estiver marcado como finalizado
-            const progress = isFinished ? 100 : Math.round((completed / plan.days.length) * 100);
+            const completedCount = plan.days.filter(d => d.isCompleted).length;
+            const isFinished = plan.isFinished || (completedCount === plan.days.length && plan.days.length > 0);
+            const progress = isFinished ? 100 : Math.round((completedCount / plan.days.length) * 100);
             const isEditing = editingId === plan.id;
             const isDownloading = downloadingId === plan.id;
             
@@ -131,12 +131,12 @@ const Library: React.FC<LibraryProps> = ({ plans, onSelectPlan, onUpload, onDele
                 className={`bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-sm border ${isFinished ? 'border-emerald-200 dark:border-emerald-900/40' : 'border-slate-100 dark:border-slate-800'} hover:shadow-xl dark:hover:shadow-indigo-900/10 transition-all group flex flex-col justify-between relative`}
               >
                 {isFinished && (
-                  <div className="absolute top-4 right-1/2 translate-x-1/2 z-10">
-                     <span className="bg-emerald-500 text-white text-[9px] font-black px-2 py-0.5 rounded-full shadow-sm uppercase tracking-tighter">Concluído</span>
+                  <div className="absolute top-4 right-1/2 translate-x-1/2 z-[15]">
+                     <span className="bg-emerald-500 text-white text-[9px] font-black px-2 py-0.5 rounded-full shadow-md shadow-emerald-200 dark:shadow-none uppercase tracking-tighter">Concluído</span>
                   </div>
                 )}
                 <div>
-                  <div className="flex justify-between items-start mb-4">
+                  <div className="flex justify-between items-start mb-4 relative z-20">
                     <div className={`p-3 rounded-2xl transition-colors ${isFinished ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400' : 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 group-hover:bg-indigo-600 group-hover:text-white'}`}>
                       {isFinished ? (
                         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
@@ -161,8 +161,12 @@ const Library: React.FC<LibraryProps> = ({ plans, onSelectPlan, onUpload, onDele
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
                       </button>
                       <button 
-                        onClick={(e) => { e.stopPropagation(); onDeletePlan(plan.id); }}
-                        className="text-slate-300 dark:text-slate-600 hover:text-red-500 p-2 transition-colors"
+                        onClick={(e) => { 
+                          e.preventDefault();
+                          e.stopPropagation(); 
+                          onDeletePlan(plan.id); 
+                        }}
+                        className="text-slate-300 dark:text-slate-600 hover:text-red-500 p-2 transition-colors relative z-30"
                         title="Remover"
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>

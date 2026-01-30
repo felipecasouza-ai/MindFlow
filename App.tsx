@@ -17,7 +17,7 @@ import { supabase } from './services/supabaseClient';
 
 const PDF_JS_VERSION = '3.11.174';
 const ADMIN_EMAIL = 'admin@mindflow.com';
-export const APP_VERSION = '1.2.7'; // Versão atualizada
+export const APP_VERSION = '1.2.8';
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>(() => {
@@ -307,6 +307,9 @@ const App: React.FC = () => {
     if (backgroundGenStatus[planId]) return;
     setBackgroundGenStatus(prev => ({ ...prev, [planId]: { current: days.filter(d => !!d.quiz?.length).length, total: days.length } }));
     
+    let errorCount = 0;
+    const maxErrors = 3;
+
     try {
       const pdfjs = (window as any)['pdfjs-dist/build/pdf'];
       const binaryString = atob(pdfData.split(',')[1]);
@@ -317,7 +320,15 @@ const App: React.FC = () => {
       const pdfDoc = await loadingTask.promise;
 
       for (let i = 0; i < days.length; i++) {
+        const stillExists = state.currentUser?.plans.some(p => p.id === planId);
+        if (!stillExists) break;
+
         if (days[i].quiz && days[i].quiz!.length > 0) continue;
+        if (errorCount >= maxErrors) {
+          console.warn("Muitos erros de API seguidos. Pausando worker de IA.");
+          break;
+        }
+
         try {
           let dayText = "";
           for (let pNum = days[i].startPage; pNum <= days[i].endPage; pNum++) {
@@ -345,10 +356,14 @@ const App: React.FC = () => {
               });
               return { ...prev, currentUser: { ...prev.currentUser, plans: updatedPlans } };
             });
+            errorCount = 0;
           }
           setBackgroundGenStatus(prev => ({ ...prev, [planId]: { ...prev[planId], current: i + 1 } }));
           await new Promise(r => setTimeout(r, 2000));
-        } catch (err) { console.error(`Erro no quiz dia ${i+1}:`, err); }
+        } catch (err) { 
+          errorCount++;
+          console.error(`Erro no quiz dia ${i+1} (Tentativa ${errorCount}/${maxErrors}):`, err); 
+        }
       }
     } catch (err) { console.error("Erro no worker de PDF:", err); }
     finally {
@@ -422,19 +437,31 @@ const App: React.FC = () => {
 
   const deletePlan = async (id: string) => {
     if (!confirm("Deseja excluir permanentemente este plano de leitura?")) return;
+    
+    setIsCloudSyncing(true);
     try {
       const plan = state.currentUser?.plans.find(p => p.id === id);
       if (plan?.storagePath) await supabase.storage.from('pdfs').remove([plan.storagePath]);
       await deletePDF(id);
       const { error: dbDeleteError } = await supabase.from('reading_plans').delete().eq('id', id);
       if (dbDeleteError) throw dbDeleteError;
+      
       setState(prev => ({ 
         ...prev, 
         currentUser: prev.currentUser ? { ...prev.currentUser, plans: prev.currentUser.plans.filter(p => p.id !== id) } : null, 
         activePlanId: prev.activePlanId === id ? null : prev.activePlanId 
       }));
+
+      if (state.activePlanId === id) {
+        setActivePlanPdf(null);
+      }
+
       alert("Plano excluído com sucesso.");
-    } catch (err: any) { alert(`Erro ao excluir plano: ${err.message}`); }
+    } catch (err: any) { 
+      alert(`Erro ao excluir plano: ${err.message}`); 
+    } finally {
+      setIsCloudSyncing(false);
+    }
   };
 
   const jumpToDay = (dayIdx: number) => {
@@ -551,6 +578,7 @@ const App: React.FC = () => {
               const planId = state.activePlanId;
               const lastTime = state.lastSessionTime || 0;
               let finalUpdatedPlan: ReadingPlan | null = null;
+              
               setState(prev => {
                 if (!prev.currentUser) return prev;
                 const updatedPlans = prev.currentUser.plans.map(p => {
@@ -564,8 +592,16 @@ const App: React.FC = () => {
                         userAnswers: answers,
                         quiz: prev.currentQuiz || updatedDays[p.currentDayIndex].quiz 
                     };
+                    
+                    const isNowFinished = updatedDays.every(d => d.isCompleted);
                     const nextIndex = p.currentDayIndex + 1 < p.days.length ? p.currentDayIndex + 1 : p.currentDayIndex;
-                    finalUpdatedPlan = { ...p, days: updatedDays, currentDayIndex: nextIndex };
+                    
+                    finalUpdatedPlan = { 
+                      ...p, 
+                      days: updatedDays, 
+                      currentDayIndex: nextIndex,
+                      isFinished: p.isFinished || isNowFinished 
+                    };
                     return finalUpdatedPlan;
                   }
                   return p;
@@ -580,7 +616,10 @@ const App: React.FC = () => {
                   reviewAnswers: [] 
                 };
               });
-              if (finalUpdatedPlan) await syncPlanToSupabase(finalUpdatedPlan);
+              
+              if (finalUpdatedPlan) {
+                await syncPlanToSupabase(finalUpdatedPlan);
+              }
             }} 
             onCancel={() => setState(prev => ({ ...prev, currentView: 'dashboard', currentQuiz: null, lastSessionTime: 0, quizReviewMode: false, reviewAnswers: [] }))}
           />
