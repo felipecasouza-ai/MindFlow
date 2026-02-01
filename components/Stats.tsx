@@ -33,6 +33,7 @@ const Stats: React.FC<StatsProps> = ({ activePlan, allPlans }) => {
   const activeTotalTime = activeCompletedDays.reduce((acc, d) => acc + (d.timeSpentSeconds || 0), 0);
   const activeTotalPagesRead = activeCompletedDays.reduce((acc, d) => acc + (d.endPage - d.startPage + 1), 0);
   const activeTimePerPage = activeTotalPagesRead > 0 ? activeTotalTime / activeTotalPagesRead : 0;
+  const activePacePerMinute = activeTotalTime > 0 ? (activeTotalPagesRead / (activeTotalTime / 60)) : 0;
   
   // Estimation for completion - Se finalizado, páginas restantes e tempo são 0
   const activeRemainingPages = isFinished ? 0 : Math.max(0, activePlan.totalPages - activeTotalPagesRead);
@@ -46,12 +47,19 @@ const Stats: React.FC<StatsProps> = ({ activePlan, allPlans }) => {
     ? activeCompletedDays 
     : activePlan.days.slice(0, Math.max(activePlan.currentDayIndex + 5, 10));
 
-  const activeChartData = baseChartDays.map(d => ({
-    name: `Dia ${d.dayNumber}`,
-    score: d.quizScore || 0,
-    tempo: d.isCompleted ? Math.round((d.timeSpentSeconds || 0) / 60 * 10) / 10 : null,
-    status: d.isCompleted ? 'Concluído' : 'Pendente'
-  }));
+  const activeChartData = baseChartDays.map(d => {
+    const pagesRead = d.endPage - d.startPage + 1;
+    const minutesSpent = (d.timeSpentSeconds || 0) / 60;
+    const ritmo = d.isCompleted && minutesSpent > 0 ? Math.round((pagesRead / minutesSpent) * 100) / 100 : null;
+    
+    return {
+      name: `Dia ${d.dayNumber}`,
+      score: d.quizScore || 0,
+      tempo: d.isCompleted ? Math.round(minutesSpent * 10) / 10 : null,
+      ritmo: ritmo,
+      status: d.isCompleted ? 'Concluído' : 'Pendente'
+    };
+  });
 
   // GLOBAL CALCULATIONS
   const allCompletedDays = allPlans.flatMap(p => p.days.filter(d => d.isCompleted));
@@ -95,7 +103,7 @@ const Stats: React.FC<StatsProps> = ({ activePlan, allPlans }) => {
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 rounded-xl shadow-xl">
           <p className="text-xs font-bold text-slate-800 dark:text-slate-100 mb-1">{payload[0].payload.fullName || label}</p>
           <p className="text-xs text-indigo-600 dark:text-indigo-400 font-black">
-            {payload[0].name}: {payload[0].value}{payload[0].unit || (payload[0].dataKey === 'progresso' ? '%' : ' min')}
+            {payload[0].name}: {payload[0].value}{payload[0].unit || (payload[0].dataKey === 'progresso' ? '%' : payload[0].dataKey === 'ritmo' ? ' pág/min' : ' min')}
           </p>
         </div>
       );
@@ -168,7 +176,7 @@ const Stats: React.FC<StatsProps> = ({ activePlan, allPlans }) => {
             <StatBox title="Média Pág/Dia" value={activeCompletedDays.length > 0 ? Math.round(activeTotalPagesRead / activeCompletedDays.length) : "--"} color="teal" />
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <ChartCard title="Evolução das Notas">
                <ResponsiveContainer width="100%" height={250}>
                   <BarChart data={activeChartData}>
@@ -196,6 +204,23 @@ const Stats: React.FC<StatsProps> = ({ activePlan, allPlans }) => {
                     {activeAvgMinutesPerDay > 0 && (
                       <ReferenceLine y={Math.round(activeAvgMinutesPerDay * 10) / 10} stroke="#f43f5e" strokeDasharray="3 3" strokeWidth={2}>
                         <Label value={`Média: ${Math.round(activeAvgMinutesPerDay * 10) / 10}m`} position="insideTopRight" fill="#f43f5e" fontSize={10} fontWeight="bold" />
+                      </ReferenceLine>
+                    )}
+                  </LineChart>
+               </ResponsiveContainer>
+            </ChartCard>
+
+            <ChartCard title="Ritmo (Pág/Min) por Sessão">
+               <ResponsiveContainer width="100%" height={250}>
+                  <LineChart data={activeChartData}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.1} />
+                    <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                    <Tooltip content={<CustomTooltip />} />
+                    <Line type="monotone" dataKey="ritmo" stroke="#10b981" strokeWidth={3} dot={{ r: 4, fill: '#10b981' }} activeDot={{ r: 6 }} connectNulls name="Ritmo" />
+                    {activePacePerMinute > 0 && (
+                      <ReferenceLine y={Math.round(activePacePerMinute * 100) / 100} stroke="#f59e0b" strokeDasharray="3 3" strokeWidth={2}>
+                        <Label value={`Média: ${Math.round(activePacePerMinute * 100) / 100} p/m`} position="insideTopRight" fill="#f59e0b" fontSize={10} fontWeight="bold" />
                       </ReferenceLine>
                     )}
                   </LineChart>
