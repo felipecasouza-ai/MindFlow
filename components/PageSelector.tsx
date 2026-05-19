@@ -18,6 +18,20 @@ const PageSelector: React.FC<PageSelectorProps> = ({ pdfData, fileName, onConfir
   const [zoomLevel, setZoomLevel] = useState(2);
   const [step, setStep] = useState<Step>('selection');
   const [markers, setMarkers] = useState<number[]>([]); // Índices (0-based) das páginas selecionadas para manter
+  
+  // Custom states for options splitting
+  const [partsCountState, setPartsCountState] = useState(10);
+  const [pagesPerDayState, setPagesPerDayState] = useState(10);
+
+  const selectedCount = pages.filter(p => p.selected).length;
+
+  // Sync / clamp values on selectedCount change or user inputs
+  useEffect(() => {
+    if (selectedCount > 0) {
+      setPartsCountState(prev => Math.min(Math.max(2, prev), selectedCount));
+      setPagesPerDayState(prev => Math.min(Math.max(1, prev), selectedCount));
+    }
+  }, [selectedCount]);
 
   // Função robusta para converter Uint8Array em Base64 sem estourar a pilha
   const uint8ToBase64 = (bytes: Uint8Array): string => {
@@ -101,7 +115,7 @@ const PageSelector: React.FC<PageSelectorProps> = ({ pdfData, fileName, onConfir
     }
   };
 
-  const finalizeWithDefaultSplit = async () => {
+  const finalizeWithPagesPerDay = async (pSize: number) => {
     setIsFinalizing(true);
     try {
       const newPdfBytes = await processEditedPdf();
@@ -111,19 +125,59 @@ const PageSelector: React.FC<PageSelectorProps> = ({ pdfData, fileName, onConfir
       }
       
       const selectedCount = pages.filter(p => p.selected).length;
-      const totalDays = Math.ceil(selectedCount / 10);
+      const size = Math.max(1, pSize);
+      const totalDays = Math.ceil(selectedCount / size);
       
       const finalDays: ReadingDay[] = Array.from({ length: totalDays }, (_, i) => ({
         dayNumber: i + 1,
-        startPage: i * 10 + 1,
-        endPage: Math.min((i + 1) * 10, selectedCount),
+        startPage: i * size + 1,
+        endPage: Math.min((i + 1) * size, selectedCount),
         isCompleted: false
       }));
 
       const base64 = uint8ToBase64(newPdfBytes);
       onConfirm(`data:application/pdf;base64,${base64}`, selectedCount, finalDays);
     } catch (error) {
-      console.error("Erro ao finalizar (Default):", error);
+      console.error("Erro ao finalizar (Por Páginas/Dia):", error);
+      alert("Erro ao processar o PDF. Verifique se o arquivo não está protegido.");
+      setIsFinalizing(false);
+    }
+  };
+
+  const finalizeWithEqualParts = async (pCount: number) => {
+    setIsFinalizing(true);
+    try {
+      const newPdfBytes = await processEditedPdf();
+      if (!newPdfBytes) {
+        setIsFinalizing(false);
+        return;
+      }
+      
+      const selectedCount = pages.filter(p => p.selected).length;
+      const count = Math.max(2, Math.min(pCount, selectedCount));
+      
+      let currentStart = 1;
+      const finalDays: ReadingDay[] = [];
+      const baseSize = Math.floor(selectedCount / count);
+      const extra = selectedCount % count;
+
+      for (let i = 0; i < count; i++) {
+        const currentSize = baseSize + (i < extra ? 1 : 0);
+        if (currentSize <= 0) continue;
+        const endPage = currentStart + currentSize - 1;
+        finalDays.push({
+          dayNumber: finalDays.length + 1,
+          startPage: currentStart,
+          endPage: endPage,
+          isCompleted: false
+        });
+        currentStart = endPage + 1;
+      }
+
+      const base64 = uint8ToBase64(newPdfBytes);
+      onConfirm(`data:application/pdf;base64,${base64}`, selectedCount, finalDays);
+    } catch (error) {
+      console.error("Erro ao finalizar (Por Partes Iguais):", error);
       alert("Erro ao processar o PDF. Verifique se o arquivo não está protegido.");
       setIsFinalizing(false);
     }
@@ -179,6 +233,14 @@ const PageSelector: React.FC<PageSelectorProps> = ({ pdfData, fileName, onConfir
     }
   };
 
+  const handlePartsCountChange = (val: number) => {
+    setPartsCountState(Math.min(Math.max(2, val), selectedCount));
+  };
+
+  const handlePagesPerDayChange = (val: number) => {
+    setPagesPerDayState(Math.min(Math.max(1, val), selectedCount));
+  };
+
   if (isProcessing) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[50vh] text-center">
@@ -190,44 +252,206 @@ const PageSelector: React.FC<PageSelectorProps> = ({ pdfData, fileName, onConfir
 
   // Visualização de Escolha de Divisão
   if (step === 'split-choice') {
+    const calculatedParts = Math.min(partsCountState, selectedCount);
+    const avgPagesPerPart = Math.round(selectedCount / calculatedParts);
+    const calculatedDaysByPageList = Math.ceil(selectedCount / pagesPerDayState);
+
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] animate-in zoom-in duration-300">
-        <div className="bg-white dark:bg-slate-900 p-10 rounded-[3rem] shadow-2xl border border-slate-100 dark:border-slate-800 max-w-2xl w-full text-center">
-          <div className="w-20 h-20 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 rounded-3xl flex items-center justify-center mx-auto mb-8">
-            <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-          </div>
-          <h2 className="text-3xl font-bold text-slate-800 dark:text-slate-100 mb-4 font-heading">Como deseja dividir sua leitura?</h2>
-          <p className="text-slate-500 dark:text-slate-400 mb-10 text-lg">
-            Você selecionou <span className="font-bold text-indigo-600">{pages.filter(p => p.selected).length} páginas</span> para o seu plano.
-          </p>
+      <div className="flex flex-col items-center justify-center min-h-[70vh] py-8 animate-in zoom-in duration-300">
+        <div className="bg-white dark:bg-slate-900 p-8 md:p-12 rounded-[3.5rem] shadow-2xl border border-slate-100 dark:border-slate-800 max-w-6xl w-full text-center space-y-8">
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <button 
-              onClick={finalizeWithDefaultSplit}
-              className="p-8 rounded-3xl border-2 border-slate-100 dark:border-slate-800 hover:border-indigo-500 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/20 transition-all text-left group"
-            >
-              <div className="w-12 h-12 bg-slate-100 dark:bg-slate-800 rounded-xl flex items-center justify-center mb-4 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
-                <span className="font-black">10</span>
-              </div>
-              <h4 className="font-bold text-slate-800 dark:text-slate-100 mb-1">Divisão Padrão</h4>
-              <p className="text-xs text-slate-500">Divisão automática de 10 páginas por dia.</p>
-            </button>
+          <div className="space-y-3">
+            <div className="inline-flex items-center justify-center p-3 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400">
+              <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+            </div>
+            <h2 className="text-3xl md:text-4xl font-extrabold text-slate-800 dark:text-slate-100 font-heading tracking-tight">Como deseja dividir sua leitura?</h2>
+            <p className="text-slate-500 dark:text-slate-400 text-lg">
+              Você selecionou <span className="font-bold text-indigo-600 dark:text-indigo-400">{selectedCount} páginas</span> para o seu plano.
+            </p>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            
+            {/* CARD 1: PARTES IGUAIS */}
+            <div className="bg-slate-50/50 dark:bg-slate-950/30 p-8 rounded-[2.5rem] border-2 border-slate-100 dark:border-slate-800 flex flex-col justify-between space-y-6 hover:shadow-lg dark:hover:shadow-indigo-950/15 hover:border-indigo-400 transition-all group">
+              <div className="space-y-4 text-left">
+                <div className="w-12 h-12 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 shadow-sm rounded-2xl flex items-center justify-center text-indigo-600 dark:text-indigo-400 group-hover:bg-indigo-600 group-hover:text-white group-hover:border-indigo-600 transition-all">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="2" />
+                    <line x1="9" y1="3" x2="9" y2="21" />
+                    <line x1="15" y1="3" x2="15" y2="21" />
+                  </svg>
+                </div>
+                <div>
+                  <h4 className="font-bold text-xl text-slate-800 dark:text-slate-100 mb-1">Partes Iguais</h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Divida o livro exatamente no número de metas/partes que desejar.</p>
+                </div>
 
-            <button 
-              onClick={() => setStep('manual-marking')}
-              className="p-8 rounded-3xl border-2 border-slate-100 dark:border-slate-800 hover:border-indigo-500 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/20 transition-all text-left group"
-            >
-              <div className="w-12 h-12 bg-slate-100 dark:bg-slate-800 rounded-xl flex items-center justify-center mb-4 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                {/* Counter Input */}
+                <div className="space-y-3 pt-2">
+                  <div className="flex items-center justify-between bg-white dark:bg-slate-800 rounded-2xl p-1.5 border border-slate-200 dark:border-slate-700 shadow-sm">
+                    <button 
+                      type="button"
+                      onClick={() => handlePartsCountChange(partsCountState - 1)}
+                      className="w-10 h-10 rounded-xl bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-200 dark:hover:bg-slate-600 active:scale-95 transition-all text-lg flex items-center justify-center select-none"
+                    >
+                      –
+                    </button>
+                    <span className="font-extrabold text-xl text-slate-800 dark:text-slate-100">{partsCountState}</span>
+                    <button 
+                      type="button"
+                      onClick={() => handlePartsCountChange(partsCountState + 1)}
+                      className="w-10 h-10 rounded-xl bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-200 dark:hover:bg-slate-600 active:scale-95 transition-all text-lg flex items-center justify-center select-none"
+                    >
+                      +
+                    </button>
+                  </div>
+
+                  {/* Preset quick pills */}
+                  <div className="flex gap-2 justify-center flex-wrap">
+                    {[3, 5, 10, 15].map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => handlePartsCountChange(preset)}
+                        className={`text-xs px-3 py-1.5 font-bold rounded-lg border transition-all ${
+                          partsCountState === preset 
+                          ? 'bg-indigo-500 text-white border-indigo-500' 
+                          : 'bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                        }`}
+                      >
+                        {preset} partes
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
-              <h4 className="font-bold text-slate-800 dark:text-slate-100 mb-1">Escolher Capítulos</h4>
-              <p className="text-xs text-slate-500">Vou marcar manualmente o final de cada dia.</p>
-            </button>
+
+              <div className="space-y-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+                <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed text-center">
+                  Isso criará <span className="font-extrabold text-indigo-600 dark:text-indigo-400">{calculatedParts} partes</span> de aproximadamente <span className="font-extrabold text-slate-700 dark:text-slate-350">{avgPagesPerPart} páginas</span> por meta.
+                </p>
+                <button 
+                  onClick={() => finalizeWithEqualParts(partsCountState)}
+                  disabled={isFinalizing}
+                  className="w-full py-4 px-6 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-2xl shadow-lg shadow-indigo-150 dark:shadow-none hover:scale-[1.02] active:scale-95 transition-all text-sm flex items-center justify-center gap-2"
+                >
+                  {isFinalizing ? (
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  ) : `Dividir em ${partsCountState} Partes`}
+                </button>
+              </div>
+            </div>
+
+            {/* CARD 2: PÁGINAS POR DIA */}
+            <div className="bg-slate-50/50 dark:bg-slate-950/30 p-8 rounded-[2.5rem] border-2 border-slate-100 dark:border-slate-800 flex flex-col justify-between space-y-6 hover:shadow-lg dark:hover:shadow-indigo-950/15 hover:border-indigo-400 transition-all group">
+              <div className="space-y-4 text-left">
+                <div className="w-12 h-12 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 shadow-sm rounded-2xl flex items-center justify-center text-indigo-600 dark:text-indigo-400 group-hover:bg-indigo-600 group-hover:text-white group-hover:border-indigo-600 transition-all">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                  </svg>
+                </div>
+                <div>
+                  <h4 className="font-bold text-xl text-slate-800 dark:text-slate-100 mb-1">Páginas por Dia</h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Excelente para ler em blocos com metas fixas de páginas diárias.</p>
+                </div>
+
+                {/* Counter Input */}
+                <div className="space-y-3 pt-2">
+                  <div className="flex items-center justify-between bg-white dark:bg-slate-800 rounded-2xl p-1.5 border border-slate-200 dark:border-slate-700 shadow-sm">
+                    <button 
+                      type="button"
+                      onClick={() => handlePagesPerDayChange(pagesPerDayState - 1)}
+                      className="w-10 h-10 rounded-xl bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-200 dark:hover:bg-slate-600 active:scale-95 transition-all text-lg flex items-center justify-center select-none"
+                    >
+                      –
+                    </button>
+                    <span className="font-extrabold text-xl text-slate-800 dark:text-slate-100">{pagesPerDayState}</span>
+                    <button 
+                      type="button"
+                      onClick={() => handlePagesPerDayChange(pagesPerDayState + 1)}
+                      className="w-10 h-10 rounded-xl bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-200 dark:hover:bg-slate-600 active:scale-95 transition-all text-lg flex items-center justify-center select-none"
+                    >
+                      +
+                    </button>
+                  </div>
+
+                  {/* Preset quick pills */}
+                  <div className="flex gap-2 justify-center flex-wrap">
+                    {[5, 10, 15, 20].map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => handlePagesPerDayChange(preset)}
+                        className={`text-xs px-3 py-1.5 font-bold rounded-lg border transition-all ${
+                          pagesPerDayState === preset 
+                          ? 'bg-indigo-500 text-white border-indigo-500' 
+                          : 'bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                        }`}
+                      >
+                        {preset} págs
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+                <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed text-center">
+                  Isso criará <span className="font-extrabold text-indigo-600 dark:text-indigo-400">{calculatedDaysByPageList} dias</span> de estudo lendo <span className="font-extrabold text-slate-700 dark:text-slate-350">{pagesPerDayState} páginas</span> por dia.
+                </p>
+                <button 
+                  onClick={() => finalizeWithPagesPerDay(pagesPerDayState)}
+                  disabled={isFinalizing}
+                  className="w-full py-4 px-6 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-2xl shadow-lg shadow-indigo-150 dark:shadow-none hover:scale-[1.02] active:scale-95 transition-all text-sm flex items-center justify-center gap-2"
+                >
+                  {isFinalizing ? (
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  ) : `Meta de ${pagesPerDayState} Págs/Dia`}
+                </button>
+              </div>
+            </div>
+
+            {/* CARD 3: ESCOLHER CAPÍTULOS MANUALMENTE */}
+            <div className="bg-slate-50/50 dark:bg-slate-950/30 p-8 rounded-[2.5rem] border-2 border-slate-100 dark:border-slate-800 flex flex-col justify-between space-y-6 hover:shadow-lg dark:hover:shadow-indigo-950/15 hover:border-indigo-400 transition-all group">
+              <div className="space-y-4 text-left">
+                <div className="w-12 h-12 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 shadow-sm rounded-2xl flex items-center justify-center text-indigo-600 dark:text-indigo-400 group-hover:bg-indigo-600 group-hover:text-white group-hover:border-indigo-600 transition-all">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 20h9" />
+                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                  </svg>
+                </div>
+                <div>
+                  <h4 className="font-bold text-xl text-slate-800 dark:text-slate-100 mb-1">Escolher Capítulos</h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Total liberdade para escolher e definir onde cada dia ou capítulo se encerra.</p>
+                </div>
+
+                <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-10 border-slate-200 dark:border-slate-700 shadow-inner">
+                  <p className="text-[11px] text-slate-400 dark:text-slate-500 leading-normal">
+                    Você folheia a prévia visual das páginas e marca à mão o exato final do Dia 1, Dia 2, etc. Recomendado para livros técnicos com divisões de capítulos variadas.
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+                <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed text-center">
+                  Divida o plano conforme a estrutura nativa de capítulos do seu livro.
+                </p>
+                <button 
+                  onClick={() => setStep('manual-marking')}
+                  className="w-full py-4 px-6 border-2 border-slate-200 dark:border-slate-700 hover:border-indigo-500 hover:text-indigo-600 dark:hover:text-indigo-400 font-extrabold rounded-2xl hover:scale-[1.02] active:scale-95 transition-all text-sm flex items-center justify-center gap-2 select-none"
+                >
+                  Ir para Marcação Visual
+                </button>
+              </div>
+            </div>
+
           </div>
 
-          <button onClick={() => setStep('selection')} className="mt-8 text-sm font-bold text-slate-400 hover:text-indigo-600 transition-colors flex items-center justify-center gap-2 mx-auto">
+          <button onClick={() => setStep('selection')} className="mt-8 text-sm font-bold text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors flex items-center justify-center gap-2 mx-auto select-none">
              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m15 18-6-6 6-6"/></svg>
-             Voltar para refinamento
+             Voltar para refinamento de páginas
           </button>
         </div>
       </div>
